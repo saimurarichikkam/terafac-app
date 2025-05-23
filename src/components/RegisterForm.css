@@ -1,0 +1,269 @@
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.register-container {
+  width: 100%;
+  min-width: 100vw;
+  overflow-x: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+  box-sizing: border-box;
+  background: linear-gradient(-45deg, #b3e5fc, #2196f3, #000000, #2196f3, #b3e5fc);
+  background-size: 300% 300%;
+  animation: blueBlackShift 20s ease-in-out infinite;
+}
+
+@keyframes blueBlackShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  25% {
+    background-position: 50% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  75% {
+    background-position: 50% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+
+.register-card {
+  display: flex;
+  flex-direction: row;
+  max-width: 1000px;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+   box-sizing: border-box;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+  flex-wrap: wrap; /* enables stack on small screens */
+}
+
+.register-image {
+  flex: 1;
+  min-width: 300px;
+  max-width: 50%;
+  height: auto;
+}
+
+.register-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.register-form {
+  flex: 1;
+  padding: 2rem;
+  min-width: 300px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+
+.form-title {
+  font-size: 1.8rem;
+  font-weight: bold;
+  margin-bottom: 1.5rem;
+  color: #333;
+}
+
+.form-row {
+  display: flex;
+  gap: 1rem;
+  width: 100%;
+}
+
+.form-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group select {
+  width: 100%;
+  padding: 0.7rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+
+.form-group label {
+  margin-bottom: 0.4rem;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+.form-group input,
+.form-group select {
+  padding: 0.7rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+.radio-group {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.form-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 2rem;
+  padding-left: 2px; 
+}
+
+.login-inline {
+  font-size: 0.85rem;
+  color: #555;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.login-inline a {
+  color: #115dfc;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+.btns {
+  display: flex;
+  gap: 1rem;
+}
+
+
+.btn {
+  padding: 0.7rem 1.5rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.btn.reset {
+  background-color: #ccc;
+  color: #333;
+}
+
+.btn.submit {
+  background-color: #f5a623;
+  color: #fff;
+}
+
+.login-link {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  text-align: center;
+  color: #555;
+}
+
+.login-link a {
+  color: #115dfc;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+.register-form,
+.register-image {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.register-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .register-card {
+    flex-direction: column;
+  }
+
+  .register-image {
+    display: none;
+  }
+
+  .register-form {
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .register-card {
+    flex-direction: column;
+    height: auto;
+    box-shadow: none;
+    border-radius: 0;
+  }
+
+  .register-image {
+    display: none;
+  }
+
+  .register-form {
+    padding: 1rem;
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .form-group input,
+  .form-group select {
+    font-size: 1rem;
+    width: 100%;
+  }
+
+  .form-title {
+    font-size: 1.4rem;
+    text-align: center;
+  }
+
+  .form-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .btns {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .btn {
+    flex: 1;
+  }
+}
+
+

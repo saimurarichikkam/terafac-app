@@ -1,0 +1,158 @@
+/* src/pages/LoginScreen.css */
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  min-width: 100vw;
+  padding: 1rem;
+  box-sizing: border-box;
+ background: linear-gradient(-45deg, #b3e5fc, #2196f3, #000000, #2196f3, #b3e5fc);
+  background-size: 300% 300%;
+  animation: blueBlackShift 20s ease-in-out infinite;
+}
+
+@keyframes blueBlackShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  25% {
+    background-position: 50% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  75% {
+    background-position: 50% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.login-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+  max-width: 1030px;
+  width: 100%;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+.login-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.login-form {
+  padding: 3rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.logo-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.logo-row .icon {
+  font-size: 2rem;
+  color: #ff6219;
+}
+
+.brand {
+  font-size: 1.75rem;
+  font-weight: bold;
+  font-family: Audiowide;
+}
+
+.subtitle {
+  margin-bottom: 2rem;
+  color: #555;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1.5rem;
+}
+
+.form-group label {
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.form-group input {
+  padding: 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 1rem;
+}
+
+.login-btn {
+  background-color: #1a1a1a;
+  color: #fff;
+  padding: 0.75rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  margin-bottom: 1rem;
+  cursor: pointer;
+  width: 100%;
+}
+
+.forgot {
+  font-size: 0.85rem;
+  color: #666;
+  margin-bottom: 1rem;
+  display: inline-block;
+}
+
+.register-link {
+  font-size: 0.85rem;
+  color: #393f81;
+}
+
+.register-link a {
+  color: #393f81;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+.policy-links {
+  margin-top: 2rem;
+  display: flex;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: #777;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .login-card {
+    grid-template-columns: 1fr;
+  }
+
+  .login-image {
+    display: none;
+  }
+
+  .login-form {
+    padding: 2rem;
+  }
+}
+
+.app-tagline {
+  font-size: 0.9rem;
+  color: #888;
+  margin: 0;
+  margin-top: 2px;
+}
+
