@@ -1,8 +1,9 @@
 // src/App.jsx
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import LoginScreen from "./components/LoginScreen"; 
+import LoginScreen from "./components/LoginScreen";
 import RegisterForm from "./components/RegisterForm";
+import HomePage from "./components/HomePage";
 
 function App() {
   return (
@@ -11,7 +12,7 @@ function App() {
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginScreen />} />
         <Route path="/register" element={<RegisterForm />} />
-        <Route path="/register" element={<div>Register Page</div>} />
+        <Route path="/home" element={<HomePage />} />
         <Route path="/forgot-password" element={<div>Forgot Password</div>} />
         <Route path="/terms" element={<div>Terms of Use</div>} />
         <Route path="/privacy" element={<div>Privacy Policy</div>} />
