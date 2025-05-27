@@ -152,7 +152,14 @@
 }
 
 .profile-card {
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* Centers items horizontally */
+  text-align: center;   /* Centers text inside each element */
+  padding: 1rem;
+  background-color: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .profile-avatar {
@@ -1027,4 +1034,12 @@
   .mobile-create-row {
     gap: 0.5rem;
   }
+}
+
+.search-input {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  width: 200px;
+  margin-right: 1rem;
 }

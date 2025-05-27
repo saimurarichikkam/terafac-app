@@ -4,8 +4,9 @@ import { Link, useNavigate } from "react-router-dom";
 import { indiaStates, indiaCities } from "../data/IndiaLocations";
 import { Camera } from "lucide-react";
 import { createUserWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../firebase";
+import { auth, db } from "../firebase"; 
 import "./RegisterForm.css";
+import { doc, setDoc } from "firebase/firestore";
 
 const RegisterForm = () => {
   const navigate = useNavigate();
@@ -65,28 +66,56 @@ const RegisterForm = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+  e.preventDefault();
 
-    if (!formData.firstName || !formData.lastName || !formData.email || !formData.password || !formData.company || !formData.role || !formData.gender) {
-      alert("Please fill in all required fields");
-      return;
-    }
+  if (
+    !formData.firstName ||
+    !formData.lastName ||
+    !formData.email ||
+    !formData.password ||
+    !formData.company ||
+    !formData.role ||
+    !formData.gender
+  ) {
+    alert("Please fill in all required fields");
+    return;
+  }
 
-    try {
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        formData.email,
-        formData.password
-      );
+  try {
+    // 1. Create Firebase Auth user
+    const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+    const user = userCredential.user;
 
-      console.log("User registered:", userCredential.user);
-      alert("Registration successful!");
-      navigate("/login");
-    } catch (error) {
-      console.error("Error creating user:", error.message);
+    // 2. Create user profile data
+    const userProfile = {
+      uid: user.uid,
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      gender: formData.gender,
+      state: formData.state,
+      city: formData.city,
+      pincode: formData.pincode,
+      company: formData.company,
+      role: formData.role,
+      email: formData.email,
+      createdAt: new Date()
+    };
+
+    // 3. Save to Firestore
+    await setDoc(doc(db, "users", user.uid), userProfile);
+
+    alert("Registration successful!");
+    navigate("/login");
+
+  } catch (error) {
+    console.error("Error creating user:", error.message);
+    if (error.code === "auth/email-already-in-use") {
+      alert("This email is already registered. Please log in instead.");
+    } else {
       alert(`Registration failed: ${error.message}`);
     }
-  };
+  }
+};
 
   const handleReset = () => {
     setFormData({

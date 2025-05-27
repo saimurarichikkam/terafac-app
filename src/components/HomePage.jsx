@@ -1,16 +1,25 @@
 // src/components/HomePage.jsx
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Search, Bell, MessageCircle, Home, AlertTriangle, User, Heart, MessageSquare, Share2, Camera, FileText, BarChart3, MapPin, Send, LogOut } from 'lucide-react';
 import './HomePage.css';
 import TerafacLogo from '../assets/icons/Terafac_Logo_bg.png';
 import Chat from './Chat';
 import Profile from './Profile';
+import { auth, db } from "../firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { useNavigate } from "react-router-dom";
+
 
 const HomePage = () => {
   const [activeTab, setActiveTab] = useState('Home');
   const [showCreatePost, setShowCreatePost] = useState(false);
   const [newPostText, setNewPostText] = useState('');
   const [selectedImage, setSelectedImage] = useState(null);
+  const [userData, setUserData] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [viewingUser, setViewingUser] = useState(null);
+
   const [posts, setPosts] = useState([
     {
       id: 1,
@@ -74,7 +83,8 @@ const HomePage = () => {
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [activePostId, setActivePostId] = useState(null);
   const [newComment, setNewComment] = useState('');
-  
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
   const tabIcons = {
@@ -215,7 +225,30 @@ const HomePage = () => {
     }
   };
 
+  useEffect(() => {
+  const fetchUserProfile = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const userRef = doc(db, "users", user.uid);
+    const userSnap = await getDoc(userRef);
+
+    if (userSnap.exists()) {
+      setUserData(userSnap.data());
+    } else {
+      console.log("No such user profile in Firestore");
+    }
+
+    setLoading(false);
+  };
+
+  fetchUserProfile();
+}, []);
+
+if (loading) return <div>Loading...</div>;
+
   return (
+    
     <div className="homepage-container">
       {/* Header */}
       <header className="homepage-header">
@@ -230,7 +263,18 @@ const HomePage = () => {
           
           <div className="header-actions">
             <button className="header-btn">
-              <Search size={20} />
+              <input
+                type="text"
+                placeholder="Search users..."
+                className="search-input"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSearch();
+                  }
+                }}
+              />
             </button>
             <button className="header-btn">
               <Bell size={20} />
@@ -263,11 +307,15 @@ const HomePage = () => {
                 {/* Profile Card */}
                 <div className="card profile-card">
                   <div className="profile-avatar">
-                    <span>SM</span>
+                    <span>
+                      {userData?.firstName && userData?.lastName
+                        ? `${userData.firstName[0]}${userData.lastName[0]}`.toUpperCase()
+                        : "SM"}
+                    </span>
                   </div>
-                  <h3 className="profile-name">Sai Murari</h3>
-                  <p className="profile-role">Software Developer </p>
-                  <p className="profile-company">Terafac Technologies</p>
+                  <h3 className="profile-name">{userData?.firstName} {userData?.lastName}</h3>
+                  <p className="profile-role">{userData?.role} </p>
+                  <p className="profile-company">{userData?.company}</p>
                 </div>
 
                 {/* Quick Stats */}
@@ -291,7 +339,11 @@ const HomePage = () => {
                 <div className="create-post">
                   <div className="create-post-row">
                     <div className="user-avatar">
-                      <span>SM</span>
+                      <span>
+                      {userData?.firstName && userData?.lastName
+                        ? `${userData.firstName[0]}${userData.lastName[0]}`.toUpperCase()
+                        : "SM"}
+                    </span>
                     </div>
                     <button 
                       className="create-post-input"
