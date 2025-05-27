@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import LoginScreen from "./components/LoginScreen";
 import RegisterForm from "./components/RegisterForm";
 import HomePage from "./components/HomePage";
+import Chat from "./components/Chat";
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
         <Route path="/login" element={<LoginScreen />} />
         <Route path="/register" element={<RegisterForm />} />
         <Route path="/home" element={<HomePage />} />
+        <Route path="/chat" element={<Chat />} />
         <Route path="/forgot-password" element={<div>Forgot Password</div>} />
         <Route path="/terms" element={<div>Terms of Use</div>} />
         <Route path="/privacy" element={<div>Privacy Policy</div>} />
