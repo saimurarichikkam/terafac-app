@@ -1,9 +1,10 @@
 // src/components/HomePage.jsx
 import React, { useState, useRef } from 'react';
-import { Search, Bell, MessageCircle, Home, AlertTriangle, User, Heart, MessageSquare, Share2, Camera, FileText, BarChart3, MapPin, Send } from 'lucide-react';
+import { Search, Bell, MessageCircle, Home, AlertTriangle, User, Heart, MessageSquare, Share2, Camera, FileText, BarChart3, MapPin, Send, LogOut } from 'lucide-react';
 import './HomePage.css';
 import TerafacLogo from '../assets/icons/Terafac_Logo_bg.png';
 import Chat from './Chat';
+import Profile from './Profile';
 
 const HomePage = () => {
   const [activeTab, setActiveTab] = useState('Home');
@@ -73,7 +74,7 @@ const HomePage = () => {
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [activePostId, setActivePostId] = useState(null);
   const [newComment, setNewComment] = useState('');
-
+  
   const fileInputRef = useRef(null);
 
   const tabIcons = {
@@ -123,7 +124,7 @@ const HomePage = () => {
         liked: false,
         commentsList: []
       };
-
+      
       setPosts([newPost, ...posts]);
       setNewPostText('');
       setSelectedImage(null);
@@ -187,7 +188,7 @@ const HomePage = () => {
       }
       return post;
     }));
-
+    
     // You can add actual sharing functionality here
     if (navigator.share) {
       navigator.share({
@@ -199,6 +200,18 @@ const HomePage = () => {
       // Fallback: copy to clipboard
       navigator.clipboard.writeText(window.location.href);
       alert('Link copied to clipboard!');
+    }
+  };
+
+  // Handle logout
+  const handleLogout = () => {
+    // Confirm logout
+    if (window.confirm('Are you sure you want to logout?')) {
+      // Clear any stored user data (if using localStorage/sessionStorage)
+      // localStorage.removeItem('userToken');
+      
+      // Navigate back to login page
+      navigate('/login');
     }
   };
 
@@ -214,7 +227,7 @@ const HomePage = () => {
               <p className="brand-subtitle">Manufacturing Hub</p>
             </div>
           </div>
-
+          
           <div className="header-actions">
             <button className="header-btn">
               <Search size={20} />
@@ -223,13 +236,20 @@ const HomePage = () => {
               <Bell size={20} />
               <span className="notification-badge">3</span>
             </button>
+            <button 
+              className="header-btn logout-btn" 
+              onClick={handleLogout}
+              title="Logout"
+            >
+              <LogOut size={20} />
+            </button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
       <div className="main-content">
-
+        
         {/* Chat Section */}
         {activeTab === 'Chat' && <Chat />}
 
@@ -273,7 +293,7 @@ const HomePage = () => {
                     <div className="user-avatar">
                       <span>SM</span>
                     </div>
-                    <button
+                    <button 
                       className="create-post-input"
                       onClick={() => setShowCreatePost(!showCreatePost)}
                     >
@@ -282,7 +302,7 @@ const HomePage = () => {
                   </div>
                   {showCreatePost && (
                     <div className="create-post-expanded">
-                      <textarea
+                      <textarea 
                         className="create-post-textarea"
                         rows="3"
                         placeholder="Share your manufacturing insights..."
@@ -292,7 +312,7 @@ const HomePage = () => {
                       {selectedImage && (
                         <div className="selected-image-preview">
                           <img src={selectedImage} alt="Selected" className="preview-image" />
-                          <button
+                          <button 
                             className="remove-image-btn"
                             onClick={() => setSelectedImage(null)}
                           >
@@ -345,30 +365,30 @@ const HomePage = () => {
                             </div>
                           </div>
                         </div>
-
+                        
                         <div className="post-text">
                           <p>{post.content}</p>
                           {post.image && (
                             <img src={post.image} alt="" className="post-image" />
                           )}
                         </div>
-
+                        
                         <div className="post-actions">
-                          <button
+                          <button 
                             className={`action-btn like-btn ${post.liked ? 'liked' : ''}`}
                             onClick={() => handleLike(post.id)}
                           >
                             <Heart size={20} fill={post.liked ? '#ef4444' : 'none'} />
                             <span>{post.likes} Like</span>
                           </button>
-                          <button
+                          <button 
                             className="action-btn comment-btn"
                             onClick={() => handleComment(post.id)}
                           >
                             <MessageSquare size={20} />
                             <span>{post.comments} Comment</span>
                           </button>
-                          <button
+                          <button 
                             className="action-btn share-btn"
                             onClick={() => handleShare(post.id)}
                           >
@@ -416,30 +436,30 @@ const HomePage = () => {
                           <p className="mobile-post-time">{post.time}</p>
                         </div>
                       </div>
-
+                      
                       <div className="mobile-post-text">
                         <p>{post.content}</p>
                         {post.image && (
                           <img src={post.image} alt="" className="mobile-post-image" />
                         )}
                       </div>
-
+                      
                       <div className="mobile-post-actions">
-                        <button
+                        <button 
                           className={`mobile-action-btn ${post.liked ? 'liked' : ''}`}
                           onClick={() => handleLike(post.id)}
                         >
                           <Heart size={16} fill={post.liked ? '#ef4444' : 'none'} />
                           <span>Like</span>
                         </button>
-                        <button
+                        <button 
                           className="mobile-action-btn"
                           onClick={() => handleComment(post.id)}
                         >
                           <MessageSquare size={16} />
                           <span>Comment</span>
                         </button>
-                        <button
+                        <button 
                           className="mobile-action-btn"
                           onClick={() => handleShare(post.id)}
                         >
@@ -464,12 +484,7 @@ const HomePage = () => {
         )}
 
         {/* Profile Section */}
-        {activeTab === 'Profile' && (
-          <div className="profile-container">
-            <h2>Profile Settings</h2>
-            <p>Manage your profile and account settings here.</p>
-          </div>
-        )}
+        {activeTab === 'Profile' && <Profile />}
       </div>
 
       {/* Comment Modal */}
@@ -478,7 +493,7 @@ const HomePage = () => {
           <div className="comment-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Add Comment</h3>
-              <button
+              <button 
                 className="close-btn"
                 onClick={() => setShowCommentModal(false)}
               >
@@ -494,13 +509,13 @@ const HomePage = () => {
                 rows="3"
               />
               <div className="modal-actions">
-                <button
+                <button 
                   className="cancel-btn"
                   onClick={() => setShowCommentModal(false)}
                 >
                   Cancel
                 </button>
-                <button
+                <button 
                   className="submit-comment-btn"
                   onClick={submitComment}
                 >

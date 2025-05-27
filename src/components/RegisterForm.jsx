@@ -1,11 +1,14 @@
 // src/components/RegisterForm.jsx
-import React from "react";
+import React, { useRef } from "react";
 import "./RegisterForm.css";
 import { Link, useNavigate } from "react-router-dom";
 import { indiaStates, indiaCities } from "../data/IndiaLocations";
+import { Camera } from "lucide-react";
 
 const RegisterForm = () => {
   const navigate = useNavigate();
+  const fileInputRef = useRef(null);
+  
   const [formData, setFormData] = React.useState({
     firstName: "",
     lastName: "",
@@ -14,11 +17,71 @@ const RegisterForm = () => {
     city: "",
     pincode: "",
     company: "",
-    email: ""
+    role: "",
+    email: "",
+    profilePhoto: null
   });
 
   const [selectedState, setSelectedState] = React.useState("");
   const [cityOptions, setCityOptions] = React.useState([]);
+  const [photoPreview, setPhotoPreview] = React.useState(null);
+
+  // Role options for different industries
+  const roleOptions = [
+    "CEO/Founder",
+    "CTO/Chief Technology Officer",
+    "Production Manager",
+    "Quality Control Manager",
+    "Manufacturing Engineer",
+    "Software Developer",
+    "Operations Manager",
+    "Supply Chain Manager",
+    "Safety Officer",
+    "Maintenance Supervisor",
+    "Plant Manager",
+    "R&D Engineer",
+    "Process Engineer",
+    "Quality Assurance Engineer",
+    "Industrial Engineer",
+    "Project Manager",
+    "Sales Manager",
+    "Business Analyst",
+    "Technical Lead",
+    "Other"
+  ];
+
+  // Handle photo upload
+  const handlePhotoClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handlePhotoChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      // Validate file type
+      const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+      if (!validTypes.includes(file.type)) {
+        alert('Please select a valid image file (JPEG, PNG, WebP)');
+        return;
+      }
+
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Please select an image smaller than 5MB');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setPhotoPreview(e.target.result);
+        setFormData({ ...formData, profilePhoto: file });
+      };
+      reader.readAsDataURL(file);
+    }
+    
+    // Reset input to allow selecting same file again
+    event.target.value = '';
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -31,6 +94,11 @@ const RegisterForm = () => {
 
     if (!formData.gender) {
       alert("Please select a gender");
+      return;
+    }
+
+    if (!formData.role) {
+      alert("Please select your role");
       return;
     }
 
@@ -50,10 +118,13 @@ const RegisterForm = () => {
       city: "",
       pincode: "",
       company: "",
-      email: ""
+      role: "",
+      email: "",
+      profilePhoto: null
     });
     setSelectedState("");
     setCityOptions([]);
+    setPhotoPreview(null);
   };
 
   return (
@@ -73,6 +144,39 @@ const RegisterForm = () => {
           <h3 className="form-title">User Registration</h3>
 
           <form onSubmit={handleSubmit}>
+            {/* Profile Photo Section */}
+            <div className="form-group photo-section">
+              <label>Profile Photo</label>
+              <div className="photo-upload-container">
+                <div className="photo-preview">
+                  {photoPreview ? (
+                    <img src={photoPreview} alt="Profile Preview" className="preview-image" />
+                  ) : (
+                    <div className="photo-placeholder">
+                      <Camera size={32} />
+                      <span>Add Photo</span>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handlePhotoChange}
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    style={{ display: 'none' }}
+                  />
+                  <button
+                    type="button"
+                    className="photo-upload-btn"
+                    onClick={handlePhotoClick}
+                    title="Upload photo"
+                  >
+                    <Camera size={16} />
+                  </button>
+                </div>
+                <p className="photo-help-text">Upload a professional photo (max 5MB)</p>
+              </div>
+            </div>
+
             <div className="form-row">
               <div className="form-group">
                 <label>First Name *</label>
@@ -190,6 +294,20 @@ const RegisterForm = () => {
                 onChange={(e) => setFormData({ ...formData, company: e.target.value })}
                 required
               />
+            </div>
+
+            <div className="form-group">
+              <label>Role/Position *</label>
+              <select
+                value={formData.role}
+                onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                required
+              >
+                <option value="">Select your role</option>
+                {roleOptions.map((role) => (
+                  <option key={role} value={role}>{role}</option>
+                ))}
+              </select>
             </div>
 
             <div className="form-group">
