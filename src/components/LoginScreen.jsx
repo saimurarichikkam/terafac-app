@@ -1,43 +1,51 @@
 // src/components/LoginScreen.jsx
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { useDispatch } from "react-redux";
+import { auth } from "../firebase";
+import { loginUser } from "../redux/slices/userSlice";
 import "./LoginForm.css";
 
 const LoginScreen = () => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const dispatch = useDispatch();
   const navigate = useNavigate();
-  const [formData, setFormData] = useState({
-    email: "",
-    password: ""
-  });
 
-  const handleSubmit = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    
-    // Basic validation
-    if (!formData.email || !formData.password) {
-      alert("Please fill in all fields");
+    setErrorMsg(''); // Reset error message
+
+    if (!email || !password) {
+      setErrorMsg("Please fill in all fields");
       return;
     }
 
-    // Here you would typically validate credentials with your backend
-    // For now, we'll just navigate to the homepage
-    console.log("Login attempt:", formData);
-    
-    // Navigate to homepage after successful login
-    navigate("/home");
-  };
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
+      dispatch(loginUser({ uid: user.uid, email: user.email }));
+      navigate("/home"); // ✅ only on success
+    } catch (error) {
+      console.error("Login error:", error);
+      if (error.code === 'auth/user-not-found') {
+        setErrorMsg("User not found. Please register first.");
+      } else if (error.code === 'auth/wrong-password') {
+        setErrorMsg("Incorrect password.");
+      } else {
+        setErrorMsg("Login failed. Please try again.");
+      }
+    }
   };
 
   return (
     <div className="login-container">
       <div className="login-card">
-        {/* Left Image Section */}
+
+        {/* Left Image */}
         <div className="login-image">
           <img
             src="https://mdbcdn.b-cdn.net/img/Photos/new-templates/bootstrap-login-form/img1.webp"
@@ -45,7 +53,7 @@ const LoginScreen = () => {
           />
         </div>
 
-        {/* Right Form Section */}
+        {/* Right Form */}
         <div className="login-form">
           <div className="logo-row">
             <i className="fa fa-cubes icon"></i>
@@ -57,36 +65,34 @@ const LoginScreen = () => {
 
           <h5 className="subtitle">Sign into your account</h5>
 
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleLogin}>
             <div className="form-group">
               <label>Email address</label>
-              <input 
-                type="email" 
-                name="email"
-                placeholder="Enter email" 
-                value={formData.email}
-                onChange={handleChange}
-                required 
+              <input
+                type="email"
+                placeholder="Enter email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
               />
             </div>
 
             <div className="form-group">
               <label>Password</label>
-              <input 
-                type="password" 
-                name="password"
-                placeholder="Enter password" 
-                value={formData.password}
-                onChange={handleChange}
-                required 
+              <input
+                type="password"
+                placeholder="Enter password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
               />
             </div>
 
+            {errorMsg && <p className="error-msg">{errorMsg}</p>}
+
             <button type="submit" className="login-btn">Login</button>
 
-            <Link className="forgot" to="/forgot-password">
-              Forgot password?
-            </Link>
+            <Link className="forgot" to="/forgot-password">Forgot password?</Link>
 
             <p className="register-link">
               Don't have an account? <Link to="/register">Register here</Link>

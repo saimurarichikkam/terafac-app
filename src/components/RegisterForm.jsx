@@ -1,15 +1,17 @@
 // src/components/RegisterForm.jsx
-import React, { useRef } from "react";
-import "./RegisterForm.css";
+import React, { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { indiaStates, indiaCities } from "../data/IndiaLocations";
 import { Camera } from "lucide-react";
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { auth } from "../firebase";
+import "./RegisterForm.css";
 
 const RegisterForm = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
-  
-  const [formData, setFormData] = React.useState({
+
+  const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
     gender: "",
@@ -19,94 +21,71 @@ const RegisterForm = () => {
     company: "",
     role: "",
     email: "",
+    password: "",
     profilePhoto: null
   });
 
-  const [selectedState, setSelectedState] = React.useState("");
-  const [cityOptions, setCityOptions] = React.useState([]);
-  const [photoPreview, setPhotoPreview] = React.useState(null);
+  const [selectedState, setSelectedState] = useState("");
+  const [cityOptions, setCityOptions] = useState([]);
+  const [photoPreview, setPhotoPreview] = useState(null);
 
-  // Role options for different industries
   const roleOptions = [
-    "CEO/Founder",
-    "CTO/Chief Technology Officer",
-    "Production Manager",
-    "Quality Control Manager",
-    "Manufacturing Engineer",
-    "Software Developer",
-    "Operations Manager",
-    "Supply Chain Manager",
-    "Safety Officer",
-    "Maintenance Supervisor",
-    "Plant Manager",
-    "R&D Engineer",
-    "Process Engineer",
-    "Quality Assurance Engineer",
-    "Industrial Engineer",
-    "Project Manager",
-    "Sales Manager",
-    "Business Analyst",
-    "Technical Lead",
-    "Other"
+    "CEO/Founder", "CTO/Chief Technology Officer", "Production Manager", "Quality Control Manager",
+    "Manufacturing Engineer", "Software Developer", "Operations Manager", "Supply Chain Manager",
+    "Safety Officer", "Maintenance Supervisor", "Plant Manager", "R&D Engineer", "Process Engineer",
+    "Quality Assurance Engineer", "Industrial Engineer", "Project Manager", "Sales Manager",
+    "Business Analyst", "Technical Lead", "Other"
   ];
 
-  // Handle photo upload
-  const handlePhotoClick = () => {
-    fileInputRef.current?.click();
-  };
+  const handlePhotoClick = () => fileInputRef.current?.click();
 
   const handlePhotoChange = (event) => {
     const file = event.target.files[0];
-    if (file) {
-      // Validate file type
-      const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-      if (!validTypes.includes(file.type)) {
-        alert('Please select a valid image file (JPEG, PNG, WebP)');
-        return;
-      }
+    if (!file) return;
 
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        alert('Please select an image smaller than 5MB');
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setPhotoPreview(e.target.result);
-        setFormData({ ...formData, profilePhoto: file });
-      };
-      reader.readAsDataURL(file);
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      alert('Please select a valid image file (JPEG, PNG, WebP)');
+      return;
     }
-    
-    // Reset input to allow selecting same file again
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Please select an image smaller than 5MB');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setPhotoPreview(e.target.result);
+      setFormData({ ...formData, profilePhoto: file });
+    };
+    reader.readAsDataURL(file);
+
     event.target.value = '';
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Basic validation
-    if (!formData.firstName || !formData.lastName || !formData.email || !formData.company) {
+
+    if (!formData.firstName || !formData.lastName || !formData.email || !formData.password || !formData.company || !formData.role || !formData.gender) {
       alert("Please fill in all required fields");
       return;
     }
 
-    if (!formData.gender) {
-      alert("Please select a gender");
-      return;
-    }
+    try {
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        formData.email,
+        formData.password
+      );
 
-    if (!formData.role) {
-      alert("Please select your role");
-      return;
+      console.log("User registered:", userCredential.user);
+      alert("Registration successful!");
+      navigate("/login");
+    } catch (error) {
+      console.error("Error creating user:", error.message);
+      alert(`Registration failed: ${error.message}`);
     }
-
-    // Here you would typically send data to your backend
-    console.log("Registration data:", formData);
-    
-    // Navigate to homepage after successful registration
-    navigate("/home");
   };
 
   const handleReset = () => {
@@ -120,6 +99,7 @@ const RegisterForm = () => {
       company: "",
       role: "",
       email: "",
+      password: "",
       profilePhoto: null
     });
     setSelectedState("");
@@ -130,7 +110,6 @@ const RegisterForm = () => {
   return (
     <div className="register-container">
       <div className="register-card">
-
         {/* Left Image */}
         <div className="register-image">
           <img
@@ -144,13 +123,13 @@ const RegisterForm = () => {
           <h3 className="form-title">User Registration</h3>
 
           <form onSubmit={handleSubmit}>
-            {/* Profile Photo Section */}
+            {/* Profile Photo */}
             <div className="form-group photo-section">
               <label>Profile Photo</label>
               <div className="photo-upload-container">
                 <div className="photo-preview">
                   {photoPreview ? (
-                    <img src={photoPreview} alt="Profile Preview" className="preview-image" />
+                    <img src={photoPreview} alt="Preview" className="preview-image" />
                   ) : (
                     <div className="photo-placeholder">
                       <Camera size={32} />
@@ -162,14 +141,9 @@ const RegisterForm = () => {
                     ref={fileInputRef}
                     onChange={handlePhotoChange}
                     accept="image/jpeg,image/jpg,image/png,image/webp"
-                    style={{ display: 'none' }}
+                    style={{ display: "none" }}
                   />
-                  <button
-                    type="button"
-                    className="photo-upload-btn"
-                    onClick={handlePhotoClick}
-                    title="Upload photo"
-                  >
+                  <button type="button" className="photo-upload-btn" onClick={handlePhotoClick}>
                     <Camera size={16} />
                   </button>
                 </div>
@@ -177,23 +151,21 @@ const RegisterForm = () => {
               </div>
             </div>
 
+            {/* Names */}
             <div className="form-row">
               <div className="form-group">
                 <label>First Name *</label>
                 <input
                   type="text"
-                  placeholder="Enter first name"
                   value={formData.firstName}
                   onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                   required
                 />
               </div>
-
               <div className="form-group">
                 <label>Last Name *</label>
                 <input
                   type="text"
-                  placeholder="Enter last name"
                   value={formData.lastName}
                   onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                   required
@@ -201,60 +173,40 @@ const RegisterForm = () => {
               </div>
             </div>
 
+            {/* Gender */}
             <div className="form-group">
               <label>Gender *</label>
               <div className="radio-group">
-                <label>
-                  <input 
-                    type="radio" 
-                    name="gender" 
-                    value="female"
-                    checked={formData.gender === "female"}
-                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                  /> 
-                  Female
-                </label>
-                <label>
-                  <input 
-                    type="radio" 
-                    name="gender" 
-                    value="male"
-                    checked={formData.gender === "male"}
-                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                  /> 
-                  Male
-                </label>
-                <label>
-                  <input 
-                    type="radio" 
-                    name="gender" 
-                    value="other"
-                    checked={formData.gender === "other"}
-                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                  /> 
-                  Other
-                </label>
+                {["female", "male", "other"].map(g => (
+                  <label key={g}>
+                    <input
+                      type="radio"
+                      name="gender"
+                      value={g}
+                      checked={formData.gender === g}
+                      onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                    />
+                    {g.charAt(0).toUpperCase() + g.slice(1)}
+                  </label>
+                ))}
               </div>
             </div>
 
+            {/* State and City */}
             <div className="form-row">
               <div className="form-group">
                 <label>State</label>
                 <select
                   value={formData.state}
                   onChange={(e) => {
-                    const stateValue = e.target.value;
-                    setFormData({
-                      ...formData,
-                      state: stateValue,
-                      city: ""
-                    });
-                    setSelectedState(stateValue);
-                    setCityOptions(indiaCities[stateValue] || []);
+                    const selected = e.target.value;
+                    setFormData({ ...formData, state: selected, city: "" });
+                    setSelectedState(selected);
+                    setCityOptions(indiaCities[selected] || []);
                   }}
                 >
                   <option value="">Select State</option>
-                  {indiaStates.map((state) => (
+                  {indiaStates.map(state => (
                     <option key={state} value={state}>{state}</option>
                   ))}
                 </select>
@@ -268,34 +220,35 @@ const RegisterForm = () => {
                   disabled={!formData.state}
                 >
                   <option value="">Select City</option>
-                  {cityOptions.map((city) => (
+                  {cityOptions.map(city => (
                     <option key={city} value={city}>{city}</option>
                   ))}
                 </select>
               </div>
             </div>
 
+            {/* Pincode */}
             <div className="form-group">
               <label>Pincode</label>
               <input
                 type="text"
-                placeholder="eg..123456"
                 value={formData.pincode}
                 onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
               />
             </div>
 
+            {/* Company */}
             <div className="form-group">
               <label>Company *</label>
               <input
                 type="text"
-                placeholder="Enter company name"
                 value={formData.company}
                 onChange={(e) => setFormData({ ...formData, company: e.target.value })}
                 required
               />
             </div>
 
+            {/* Role */}
             <div className="form-group">
               <label>Role/Position *</label>
               <select
@@ -304,37 +257,45 @@ const RegisterForm = () => {
                 required
               >
                 <option value="">Select your role</option>
-                {roleOptions.map((role) => (
+                {roleOptions.map(role => (
                   <option key={role} value={role}>{role}</option>
                 ))}
               </select>
             </div>
 
+            {/* Email & Password */}
             <div className="form-group">
               <label>Email *</label>
               <input
                 type="email"
-                placeholder="Enter email"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 required
               />
             </div>
+            <div className="form-group">
+              <label>Password *</label>
+              <input
+                type="password"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                required
+              />
+            </div>
 
+            {/* Footer */}
             <div className="form-footer">
               <div className="login-inline">
                 <span>Already have an account? </span>
                 <Link to="/login">Login</Link>
               </div>
               <div className="btns">
-                <button
-                  type="button"
-                  className="btn reset"
-                  onClick={handleReset}
-                >
+                <button type="button" className="btn reset" onClick={handleReset}>
                   Reset
                 </button>
-                <button type="submit" className="btn submit">Submit</button>
+                <button type="submit" className="btn submit">
+                  Register
+                </button>
               </div>
             </div>
           </form>
