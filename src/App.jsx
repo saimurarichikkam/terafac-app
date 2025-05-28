@@ -5,6 +5,7 @@ import LoginScreen from "./components/LoginScreen";
 import RegisterForm from "./components/RegisterForm";
 import HomePage from "./components/HomePage";
 import Chat from "./components/Chat";
+import PublicProfile from './components/PublicProfile';
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
         <Route path="/register" element={<RegisterForm />} />
         <Route path="/home" element={<HomePage />} />
         <Route path="/chat" element={<Chat />} />
+        <Route path="/profile/:uid" element={<PublicProfile />} />
         <Route path="/forgot-password" element={<div>Forgot Password</div>} />
         <Route path="/terms" element={<div>Terms of Use</div>} />
         <Route path="/privacy" element={<div>Privacy Policy</div>} />

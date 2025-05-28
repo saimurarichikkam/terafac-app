@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import './Profile.css';
 import { auth, db } from "../firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, collection, getDocs } from "firebase/firestore";
 
 const Profile = () => {
   const [activeSection, setActiveSection] = useState('overview');
@@ -37,8 +37,10 @@ const Profile = () => {
   const [editingSection, setEditingSection] = useState(null);
   const [editData, setEditData] = useState({ ...profileData });
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
   const fileInputRef = useRef(null);
-
+  
   const profileStats = [
     { label: 'Posts', value: '47', icon: MessageSquare },
     { label: 'Connections', value: '1.2K', icon: Users },
@@ -124,6 +126,32 @@ const Profile = () => {
 
       fetchUserData();
     }, []);
+
+    useEffect(() => {
+    const fetchAllUsers = async () => {
+      const usersRef = collection(db, 'users');
+      const snapshot = await getDocs(usersRef);
+      const allUsers = snapshot.docs.map(doc => doc.data());
+
+      const filtered = allUsers.filter(user => {
+        const fullName = `${user.firstName} ${user.lastName}`.toLowerCase();
+        return (
+          fullName.startsWith(searchTerm.toLowerCase()) ||
+          user.email?.toLowerCase().startsWith(searchTerm.toLowerCase())
+        );
+      });
+
+      setSearchResults(filtered);
+    };
+
+    if (searchTerm.length > 0) {
+      fetchAllUsers();
+    } else {
+      setSearchResults([]);
+    }
+  }, [searchTerm]);
+
+  
 
   const saveSection = async (updates) => {
   const user = auth.currentUser;

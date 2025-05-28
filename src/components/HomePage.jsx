@@ -8,7 +8,7 @@ import Profile from './Profile';
 import { auth, db } from "../firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
-
+import { collection, getDocs } from "firebase/firestore";
 
 const HomePage = () => {
   const [activeTab, setActiveTab] = useState('Home');
@@ -20,6 +20,7 @@ const HomePage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [viewingUser, setViewingUser] = useState(null);
+  const navigate = useNavigate();
 
   const [posts, setPosts] = useState([
     {
@@ -85,7 +86,6 @@ const HomePage = () => {
   const [activePostId, setActivePostId] = useState(null);
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
   const tabIcons = {
@@ -255,6 +255,25 @@ const HomePage = () => {
 
     return () => clearInterval(interval);
   }, []);
+
+const handleSearch = async () => {
+  const usersRef = collection(db, 'users');
+  const snapshot = await getDocs(usersRef);
+  const allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+  const query = searchQuery.toLowerCase();
+
+  const matchedUser = allUsers.find(user =>
+    `${user.firstName} ${user.lastName}`.toLowerCase() === query ||
+    user.email?.toLowerCase() === query
+  );
+
+  if (matchedUser) {
+     navigate(`/profile/${matchedUser.id}`); // Either use user.uid or doc.id
+  } else {
+    alert("No user found with that name or email.");
+  }
+};
 
 
 if (loading) return <div>Loading...</div>;
