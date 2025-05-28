@@ -12,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 
 const HomePage = () => {
   const [activeTab, setActiveTab] = useState('Home');
+  const [profileData, setProfileData] = useState(null);
   const [showCreatePost, setShowCreatePost] = useState(false);
   const [newPostText, setNewPostText] = useState('');
   const [selectedImage, setSelectedImage] = useState(null);
@@ -225,25 +226,36 @@ const HomePage = () => {
     }
   };
 
-  useEffect(() => {
-  const fetchUserProfile = async () => {
-    const user = auth.currentUser;
-    if (!user) return;
+   useEffect(() => {
+    const fetchUserProfile = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
 
-    const userRef = doc(db, "users", user.uid);
-    const userSnap = await getDoc(userRef);
+      const userRef = doc(db, "users", user.uid);
+      const userSnap = await getDoc(userRef);
 
-    if (userSnap.exists()) {
-      setUserData(userSnap.data());
-    } else {
-      console.log("No such user profile in Firestore");
-    }
+      if (userSnap.exists()) {
+        const data = userSnap.data();
+        setProfileData(data);  
+        setUserData(data);
+      }
+      setLoading(false);
+    };
 
-    setLoading(false);
-  };
+    // Initial fetch
+    fetchUserProfile();
 
-  fetchUserProfile();
-}, []);
+    // Listen for localStorage updates
+    const interval = setInterval(() => {
+      if (localStorage.getItem("profileUpdated")) {
+        fetchUserProfile();
+        localStorage.removeItem("profileUpdated");
+      }
+    }, 1000); // checks every second
+
+    return () => clearInterval(interval);
+  }, []);
+
 
 if (loading) return <div>Loading...</div>;
 
@@ -313,9 +325,9 @@ if (loading) return <div>Loading...</div>;
                         : "SM"}
                     </span>
                   </div>
-                  <h3 className="profile-name">{userData?.firstName} {userData?.lastName}</h3>
-                  <p className="profile-role">{userData?.role} </p>
-                  <p className="profile-company">{userData?.company}</p>
+                  <h3 className="profile-name">{profileData.firstName} {profileData.lastName}</h3>
+                  <p className="profile-role">{profileData.role} </p>
+                  <p className="profile-company">{profileData.company}</p>
                 </div>
 
                 {/* Quick Stats */}

@@ -1,5 +1,5 @@
 // src/components/Profile.jsx
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   User, 
   MapPin, 
@@ -26,22 +26,15 @@ import {
   X
 } from 'lucide-react';
 import './Profile.css';
+import { auth, db } from "../firebase";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 const Profile = () => {
   const [activeSection, setActiveSection] = useState('overview');
   const [isEditing, setIsEditing] = useState(false);
-  const [profileData, setProfileData] = useState({
-    name: 'Sai Murari',
-    title: 'Software Developer',
-    company: 'Terafac Technologies',
-    location: 'Chandigarh, India',
-    email: 'sai.murari@terafac.com',
-    phone: '+91 98765 43210',
-    joinDate: 'January 2023',
-    bio: 'Passionate software developer with expertise in manufacturing technology solutions. Focused on creating innovative platforms that connect the manufacturing industry.',
-    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face'
-  });
-
+  const [loading, setLoading] = useState(true);
+  const [profileData, setProfileData] = useState(null);
+  const [editingSection, setEditingSection] = useState(null);
   const [editData, setEditData] = useState({ ...profileData });
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const fileInputRef = useRef(null);
@@ -104,14 +97,96 @@ const Profile = () => {
     }
   ];
 
+    useEffect(() => {
+      const fetchUserData = async () => {
+        const user = auth.currentUser;
+        if (!user) return;
+
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          setProfileData(data);
+
+          // Initialize all 3 fields for the edit form
+          setEditData({
+            name: `${data.firstName || ""} ${data.lastName || ""}`.trim(),
+            title: data.role || "",
+            company: data.company || ""
+          });
+        } else {
+          console.log("No profile found.");
+        }
+
+        setLoading(false);
+      };
+
+      fetchUserData();
+    }, []);
+
+  const saveSection = async (updates) => {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  try {
+    const updated = { ...profileData, ...updates };
+    await setDoc(doc(db, "users", user.uid), updated);
+    setProfileData(updated);
+    setEditingSection(null);
+    alert("Profile updated!");
+  } catch (error) {
+    console.error("Error saving section:", error);
+    alert("Failed to save section.");
+  }
+};
+
   const handleEdit = () => {
+    const name = `${profileData.firstName || ""} ${profileData.lastName || ""}`.trim();
+    setEditData({
+      name,
+      title: profileData.role || "",
+      company: profileData.company || "",
+      avatar: profileData.avatar || "",
+    });
     setIsEditing(true);
-    setEditData({ ...profileData });
   };
 
-  const handleSave = () => {
-    setProfileData({ ...editData });
-    setIsEditing(false);
+
+  const handleSave = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const fullName = editData.name || "";
+    const [firstName, ...lastParts] = fullName.trim().split(" ");
+    const lastName = lastParts.join(" ");
+
+    const updatedProfile = {
+      ...profileData,
+      firstName: firstName || "",
+      lastName: lastName || "",
+      role: editData.title || "",
+      company: editData.company || "",
+      avatar: editData.avatar || profileData.avatar || "",
+      createdAt: profileData.createdAt || new Date(), // fallback if missing
+    };
+
+    try {
+      await setDoc(doc(db, "users", user.uid), updatedProfile);
+      setProfileData(updatedProfile);
+      setEditData({
+        name: `${updatedProfile.firstName} ${updatedProfile.lastName}`,
+        title: updatedProfile.role,
+        company: updatedProfile.company,
+        avatar: updatedProfile.avatar
+      });
+      setIsEditing(false);
+      alert("Profile updated successfully!");
+      localStorage.setItem("profileUpdated", Date.now());
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      alert("Failed to update profile. Please try again.");
+    }
   };
 
   const handleCancel = () => {
@@ -186,6 +261,8 @@ const Profile = () => {
     event.target.value = '';
   };
 
+if (loading) return <p>Loading profile...</p>;
+
   return (
     <div className="profile-container">
       {/* Profile Header */}
@@ -193,90 +270,81 @@ const Profile = () => {
         <div className="profile-cover">
           <div className="profile-avatar-section">
             <div className="profile-avatar-container">
-              <img src={profileData.avatar} alt="Profile" className="profile-avatar-large" />
+              {profileData?.avatar ? (
+                <img src={profileData.avatar} alt="Profile" className="profile-avatar-large" />
+              ) : (
+                <span className="profile-avatar-placeholder">
+                  {profileData?.firstName[0]}{profileData?.lastName[0]}
+                </span>
+              )}
               {isUploadingPhoto && (
-                <div className="upload-overlay">
-                  <div className="upload-spinner"></div>
-                </div>
+                <div className="upload-overlay"><div className="upload-spinner" /></div>
               )}
               <input
                 type="file"
                 ref={fileInputRef}
                 onChange={handlePhotoChange}
-                accept="image/jpeg,image/jpg,image/png,image/webp"
+                accept="image/*"
                 style={{ display: 'none' }}
               />
-              <button 
-                className="avatar-edit-btn" 
-                onClick={handlePhotoClick} 
-                title="Change profile photo"
+              <button
+                className="avatar-edit-btn"
+                onClick={handlePhotoClick}
                 disabled={isUploadingPhoto}
+                title="Change profile photo"
               >
                 <Camera size={16} />
               </button>
             </div>
-            
+
             <div className="profile-info">
               {isEditing ? (
                 <div className="edit-form">
                   <input
                     type="text"
-                    value={editData.name}
-                    onChange={(e) => handleInputChange('name', e.target.value)}
+                    value={editData.name || ""}
+                    onChange={(e) => handleInputChange("name", e.target.value)}
                     className="edit-input name-input"
                   />
+
                   <input
                     type="text"
-                    value={editData.title}
-                    onChange={(e) => handleInputChange('title', e.target.value)}
+                    value={editData.title || ""}
+                    onChange={(e) => handleInputChange("title", e.target.value)}
                     className="edit-input title-input"
                   />
+
                   <input
                     type="text"
-                    value={editData.company}
-                    onChange={(e) => handleInputChange('company', e.target.value)}
+                    value={editData.company || ""}
+                    onChange={(e) => handleInputChange("company", e.target.value)}
                     className="edit-input company-input"
                   />
                   <div className="edit-actions">
-                    <button onClick={handleSave} className="save-btn">
-                      <Save size={16} />
-                      Save
-                    </button>
-                    <button onClick={handleCancel} className="cancel-btn">
-                      <X size={16} />
-                      Cancel
-                    </button>
+                    <button onClick={handleSave} className="save-btn"><Save size={16} />Save</button>
+                    <button onClick={handleCancel} className="cancel-btn"><X size={16} />Cancel</button>
                   </div>
                 </div>
               ) : (
                 <>
-                  <h1 className="profile-name">{profileData.name}</h1>
-                  <h2 className="profile-title">{profileData.title}</h2>
+                  <h1 className="profile-name">{profileData.firstName} {profileData.lastName}</h1>
+                  <h2 className="profile-title">{profileData.role}</h2>
                   <div className="profile-meta">
-                    <span className="profile-company">
-                      <Building2 size={16} />
-                      {profileData.company}
-                    </span>
-                    <span className="profile-location">
-                      <MapPin size={16} />
-                      {profileData.location}
-                    </span>
+                    <span className="profile-company"><Building2 size={16} />{profileData.company}</span>
+                    <span className="profile-location"><MapPin size={16} />{profileData.city}, {profileData.state}</span>
                   </div>
-                  <button onClick={handleEdit} className="edit-profile-btn">
-                    <Edit size={16} />
-                    Edit Profile
-                  </button>
+                  <button onClick={handleEdit} className="edit-profile-btn"><Edit size={16} /> Edit Profile</button>
                 </>
               )}
             </div>
           </div>
         </div>
 
-        {/* Profile Stats */}
+        {/* Stats */}
         <div className="profile-stats">
-          {profileStats.map((stat, index) => (
-            <div key={index} className="stat-item">
-              <stat.icon size={20} className="stat-icon" />
+          {profileStats.map((stat, idx) => (
+            <div key={idx} className="stat-item">
+              <stat.icon size={20} />
               <div>
                 <span className="stat-value">{stat.value}</span>
                 <span className="stat-label">{stat.label}</span>
@@ -286,185 +354,208 @@ const Profile = () => {
         </div>
       </div>
 
-      {/* Profile Navigation */}
+      {/* Navigation */}
       <div className="profile-nav">
-        <button 
-          className={`nav-item ${activeSection === 'overview' ? 'active' : ''}`}
-          onClick={() => setActiveSection('overview')}
-        >
-          Overview
-        </button>
-        <button 
-          className={`nav-item ${activeSection === 'posts' ? 'active' : ''}`}
-          onClick={() => setActiveSection('posts')}
-        >
-          Posts
-        </button>
-        <button 
-          className={`nav-item ${activeSection === 'connections' ? 'active' : ''}`}
-          onClick={() => setActiveSection('connections')}
-        >
-          Connections
-        </button>
-        <button 
-          className={`nav-item ${activeSection === 'settings' ? 'active' : ''}`}
-          onClick={() => setActiveSection('settings')}
-        >
-          Settings
-        </button>
+        {["overview", "posts", "connections", "settings"].map((section) => (
+          <button
+            key={section}
+            className={`nav-item ${activeSection === section ? "active" : ""}`}
+            onClick={() => setActiveSection(section)}
+          >
+            {section.charAt(0).toUpperCase() + section.slice(1)}
+          </button>
+        ))}
       </div>
 
-      {/* Profile Content */}
+      {/* Content Sections */}
       <div className="profile-content">
-        
-        {/* Overview Section */}
-        {activeSection === 'overview' && (
+        {activeSection === "overview" && (
           <div className="overview-section">
             <div className="overview-grid">
-              
-              {/* About Card */}
+              {/* About */}
               <div className="profile-card">
-                <h3>About</h3>
-                {isEditing ? (
-                  <textarea
-                    value={editData.bio}
-                    onChange={(e) => handleInputChange('bio', e.target.value)}
-                    className="edit-textarea"
-                    rows="4"
-                  />
+                <div className="card-header">
+                  <h3>About</h3>
+                  <button onClick={() => setEditingSection("about")} className="edit-icon-btn">
+                    <Edit size={16} />
+                  </button>
+                </div>
+
+                {editingSection === "about" ? (
+                  <>
+                    <textarea
+                      value={editData.bio || ""}
+                      onChange={(e) => handleInputChange("bio", e.target.value)}
+                      className="edit-textarea"
+                    />
+                    <div className="edit-actions">
+                      <button onClick={() => saveSection({ bio: editData.bio })} className="save-btn">Save</button>
+                      <button onClick={() => setEditingSection(null)} className="cancel-btn">Cancel</button>
+                    </div>
+                  </>
                 ) : (
-                  <p className="bio-text">{profileData.bio}</p>
+                  <p>{profileData.bio || "No bio added yet."}</p>
                 )}
               </div>
 
-              {/* Contact Info Card */}
+              {/* Contact */}
               <div className="profile-card">
-                <h3>Contact Information</h3>
-                <div className="contact-info">
-                  <div className="contact-item">
-                    <Mail size={18} />
-                    {isEditing ? (
-                      <input
-                        type="email"
-                        value={editData.email}
-                        onChange={(e) => handleInputChange('email', e.target.value)}
-                        className="edit-input"
-                      />
-                    ) : (
-                      <span>{profileData.email}</span>
-                    )}
-                  </div>
-                  <div className="contact-item">
-                    <Phone size={18} />
-                    {isEditing ? (
-                      <input
-                        type="tel"
-                        value={editData.phone}
-                        onChange={(e) => handleInputChange('phone', e.target.value)}
-                        className="edit-input"
-                      />
-                    ) : (
-                      <span>{profileData.phone}</span>
-                    )}
-                  </div>
-                  <div className="contact-item">
-                    <MapPin size={18} />
-                    {isEditing ? (
-                      <input
-                        type="text"
-                        value={editData.location}
-                        onChange={(e) => handleInputChange('location', e.target.value)}
-                        className="edit-input"
-                      />
-                    ) : (
-                      <span>{profileData.location}</span>
-                    )}
-                  </div>
-                  <div className="contact-item">
-                    <Calendar size={18} />
-                    <span>Joined {profileData.joinDate}</span>
-                  </div>
+                <div className="card-header">
+                  <h3>Contact Information</h3>
+                  <button onClick={() => setEditingSection("contact")} className="edit-icon-btn">
+                    <Edit size={16} />
+                  </button>
                 </div>
+
+                {editingSection === "contact" ? (
+                  <>
+                    <input
+                      type="text"
+                      value={editData.phone || ""}
+                      onChange={(e) => handleInputChange("phone", e.target.value)}
+                      placeholder="Phone"
+                      className="edit-input"
+                    />
+                    <input
+                      type="text"
+                      value={editData.city || ""}
+                      onChange={(e) => handleInputChange("city", e.target.value)}
+                      placeholder="City"
+                      className="edit-input"
+                    />
+                    <input
+                      type="text"
+                      value={editData.state || ""}
+                      onChange={(e) => handleInputChange("state", e.target.value)}
+                      placeholder="State"
+                      className="edit-input"
+                    />
+                    <div className="edit-actions">
+                      <button
+                        onClick={() =>
+                          saveSection({ phone: editData.phone, city: editData.city, state: editData.state })
+                        }
+                        className="save-btn"
+                      >
+                        Save
+                      </button>
+                      <button onClick={() => setEditingSection(null)} className="cancel-btn">
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="contact-info">
+                    <div><Mail size={18} /> {profileData.email}</div>
+                    <div><Phone size={18} /> {profileData.phone || "N/A"}</div>
+                    <div><MapPin size={18} /> {profileData.city}, {profileData.state}</div>
+                    <div><Calendar size={18} /> Joined {new Date(profileData.createdAt.seconds * 1000).toLocaleDateString()}</div>
+                  </div>
+                )}
               </div>
 
-              {/* Experience Card */}
+              {/* Experience */}
               <div className="profile-card">
-                <h3>Professional Experience</h3>
-                <div className="experience-item">
-                  <Briefcase size={18} />
-                  <div>
-                    <h4>Software Developer</h4>
-                    <p>Terafac Technologies • 2023 - Present</p>
-                    <p className="experience-desc">Developing manufacturing networking platform and industrial solutions.</p>
-                  </div>
+                <div className="card-header">
+                  <h3>Professional Experience</h3>
+                  <button onClick={() => setEditingSection("experience")} className="edit-icon-btn">
+                    <Edit size={16} />
+                  </button>
                 </div>
+                {editingSection === "experience" ? (
+                  <>
+                    <input
+                      type="text"
+                      value={editData.title || ""}
+                      onChange={(e) => handleInputChange("title", e.target.value)}
+                      placeholder="Role"
+                      className="edit-input"
+                    />
+                    <input
+                      type="text"
+                      value={editData.company || ""}
+                      onChange={(e) => handleInputChange("company", e.target.value)}
+                      placeholder="Company"
+                      className="edit-input"
+                    />
+                    <div className="edit-actions">
+                      <button
+                        onClick={() => saveSection({ role: editData.title, company: editData.company })}
+                        className="save-btn"
+                      >
+                        Save
+                      </button>
+                      <button onClick={() => setEditingSection(null)} className="cancel-btn">
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <p>{profileData.role} at {profileData.company} (2023 - Present)</p>
+                )}
               </div>
 
-              {/* Skills Card */}
+
+              {/* Skills */}
               <div className="profile-card">
-                <h3>Skills & Expertise</h3>
-                <div className="skills-grid">
-                  <span className="skill-tag">React.js</span>
-                  <span className="skill-tag">JavaScript</span>
-                  <span className="skill-tag">Manufacturing Tech</span>
-                  <span className="skill-tag">Industrial IoT</span>
-                  <span className="skill-tag">Quality Control</span>
-                  <span className="skill-tag">Automation</span>
+                <div className="card-header">
+                  <h3>Skills</h3>
+                  <button onClick={() => setEditingSection("skills")} className="edit-icon-btn">
+                    <Edit size={16} />
+                  </button>
                 </div>
+                {editingSection === "skills" ? (
+                  <>
+                    <input
+                      type="text"
+                      value={editData.skills || ""}
+                      onChange={(e) => handleInputChange("skills", e.target.value)}
+                      placeholder="Comma-separated skills (e.g., React, JavaScript, IoT)"
+                      className="edit-input"
+                    />
+                    <div className="edit-actions">
+                      <button
+                        onClick={() => saveSection({ skills: editData.skills.split(",").map(s => s.trim()) })}
+                        className="save-btn"
+                      >
+                        Save
+                      </button>
+                      <button onClick={() => setEditingSection(null)} className="cancel-btn">
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="skills-grid">
+                    {(profileData.skills || []).map((skill, index) => (
+                      <span key={index} className="skill-tag">{skill}</span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
         )}
 
-        {/* Posts Section */}
-        {activeSection === 'posts' && (
+        {activeSection === "posts" && (
           <div className="posts-section">
             <h3>Recent Posts</h3>
-            <div className="posts-list">
-              {recentPosts.map((post) => (
-                <div key={post.id} className="post-item">
-                  <div className="post-content">
-                    <p>{post.content}</p>
-                    <span className="post-timestamp">{post.timestamp}</span>
-                  </div>
-                  <div className="post-stats">
-                    <span><Heart size={16} /> {post.likes}</span>
-                    <span><MessageSquare size={16} /> {post.comments}</span>
-                    <button><MoreHorizontal size={16} /></button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p>No posts to show yet.</p>
           </div>
         )}
 
-        {/* Connections Section */}
-        {activeSection === 'connections' && (
+        {activeSection === "connections" && (
           <div className="connections-section">
-            <h3>Your Connections ({connections.length})</h3>
-            <div className="connections-grid">
-              {connections.map((connection) => (
-                <div key={connection.id} className="connection-card">
-                  <img src={connection.avatar} alt="" className="connection-avatar" />
-                  <div className="connection-info">
-                    <h4>{connection.name}</h4>
-                    <p>{connection.title}</p>
-                    <p className="connection-company">{connection.company}</p>
-                    <span className="mutual-connections">{connection.mutual} mutual connections</span>
-                  </div>
-                  <button className="message-btn">Message</button>
-                </div>
-              ))}
-            </div>
+            <h3>Your Connections (0)</h3>
+            <p>No connections yet.</p>
           </div>
         )}
 
-        {/* Settings Section */}
         {activeSection === 'settings' && (
           <div className="settings-section">
             <h3>Account Settings</h3>
             <div className="settings-grid">
-              
+
               <div className="setting-card">
                 <div className="setting-header">
                   <Shield size={20} />
@@ -530,6 +621,7 @@ const Profile = () => {
                   </div>
                 </div>
               </div>
+              
             </div>
           </div>
         )}
