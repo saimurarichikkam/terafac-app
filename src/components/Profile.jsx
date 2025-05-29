@@ -26,6 +26,7 @@ import {
   X
 } from 'lucide-react';
 import './Profile.css';
+import { query, where } from 'firebase/firestore';
 import { auth, db } from "../firebase";
 import { doc, getDoc, setDoc, collection, getDocs } from "firebase/firestore";
 
@@ -33,6 +34,7 @@ const Profile = () => {
   const [activeSection, setActiveSection] = useState('overview');
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [userPosts, setUserPosts] = useState([]);
   const [profileData, setProfileData] = useState(null);
   const [editingSection, setEditingSection] = useState(null);
   const [editData, setEditData] = useState({ ...profileData });
@@ -151,6 +153,19 @@ const Profile = () => {
     }
   }, [searchTerm]);
 
+  useEffect(() => {
+    const fetchUserPosts = async () => {
+      const q = query(collection(db, "posts"), where("userId", "==", auth.currentUser.uid));
+      const snapshot = await getDocs(q);
+      const userPosts = snapshot.docs.map(doc => doc.data());
+      setUserPosts(userPosts);  // Add setUserPosts to state
+    };
+
+    if (auth.currentUser) {
+      fetchUserPosts();
+    }
+  }, []);
+
   
 
   const saveSection = async (updates) => {
@@ -196,7 +211,9 @@ const Profile = () => {
       role: editData.title || "",
       company: editData.company || "",
       avatar: editData.avatar || profileData.avatar || "",
-      createdAt: profileData.createdAt || new Date(), // fallback if missing
+      city: editData.city || profileData.city || "",
+      state: editData.state || profileData.state || "",
+      createdAt: profileData.createdAt || new Date(),
     };
 
     try {
@@ -566,9 +583,15 @@ if (loading) return <p>Loading profile...</p>;
         )}
 
         {activeSection === "posts" && (
-          <div className="posts-section">
-            <h3>Recent Posts</h3>
-            <p>No posts to show yet.</p>
+         <div className="profile-posts">
+            <h3>Your Posts</h3>
+            {userPosts.map((post, idx) => (
+              <div key={idx} className="post-card">
+                <h4>{post.content}</h4>
+                {post.image && <img src={post.image} alt="post" />}
+                <p>{post.timestamp?.seconds ? new Date(post.timestamp.seconds * 1000).toLocaleString() : ''}</p>
+              </div>
+            ))}
           </div>
         )}
 

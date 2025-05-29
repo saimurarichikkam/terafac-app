@@ -3,7 +3,7 @@
 /* Profile Container */
 .profile-container {
     max-width: 100%;
-    width: 100%;
+    width: 100vw;
     margin: 0 auto;
     background: #f9fafb;
     min-height: calc(100vh - 140px);

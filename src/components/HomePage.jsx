@@ -9,6 +9,7 @@ import { auth, db } from "../firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
+import { addDoc, serverTimestamp } from 'firebase/firestore';
 
 const HomePage = () => {
   const [activeTab, setActiveTab] = useState('Home');
@@ -117,29 +118,36 @@ const HomePage = () => {
     }
   };
 
+  const handlePost = async () => {
+  const user = auth.currentUser;
+  if (!user || (!newPostText.trim() && !selectedImage)) return;
+
   // Handle posting
-  const handlePost = () => {
-    if (newPostText.trim() || selectedImage) {
-      const newPost = {
-        id: posts.length + 1,
-        user: "Sai Murari",
-        company: "Terafac Technologies ",
-        location: "Changigarh",
-        avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=50&h=50&fit=crop&crop=face",
-        time: "Just now",
-        content: newPostText,
-        image: selectedImage,
-        likes: 0,
-        comments: 0,
-        shares: 0,
-        liked: false,
-        commentsList: []
-      };
-      
-      setPosts([newPost, ...posts]);
+    const post = {
+      userId: user.uid,
+      userName: `${profileData.firstName} ${profileData.lastName}`,
+      company: profileData.company,
+      role: profileData.role,
+      city: profileData.city || '',
+      state: profileData.state || '',
+      avatar: profileData.avatar || '',
+      content: newPostText,
+      image: selectedImage || '',
+      likes: 0,
+      shares: 0,
+      comments: [],
+      timestamp: serverTimestamp(),
+    };
+
+    try {
+      await addDoc(collection(db, "posts"), post);  // Save to Firestore
       setNewPostText('');
       setSelectedImage(null);
       setShowCreatePost(false);
+      fetchPosts(); // Refresh posts from Firestore
+    } catch (error) {
+      console.error("Error saving post:", error);
+      alert("Failed to save post.");
     }
   };
 
@@ -274,6 +282,18 @@ const handleSearch = async () => {
     alert("No user found with that name or email.");
   }
 };
+
+const fetchPosts = async () => {
+  const snapshot = await getDocs(collection(db, 'posts'));
+  const allPosts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  // Sort by timestamp descending
+  setPosts(allPosts.sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds));
+};
+
+useEffect(() => {
+  fetchPosts();
+}, []);
+
 
 
 if (loading) return <div>Loading...</div>;
@@ -441,11 +461,12 @@ if (loading) return <div>Loading...</div>;
                         <div className="post-header">
                           <img src={post.avatar} alt="" className="post-avatar" />
                           <div className="post-user-info">
-                            <h3 className="post-username">{post.user}</h3>
-                            <div className="post-meta">
-                              <MapPin size={12} />
-                              <span>{post.location} • {post.time}</span>
-                            </div>
+                            <h3 className="post-username">{post.userName}</h3>
+                              <p className="post-role-company">{post.role} at {post.company}</p>
+                              <div className="post-meta">
+                                <MapPin size={12} />
+                                <span>{post.city}, {post.state}</span>
+                              </div>
                           </div>
                         </div>
                         
