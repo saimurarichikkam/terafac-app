@@ -1,14 +1,15 @@
-// src/components/HomePage.jsx
+// Updated HomePage.jsx with better error handling and Firebase fixes
+
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Bell, MessageCircle, Home, AlertTriangle, User, Heart, MessageSquare, Share2, Camera, FileText, BarChart3, MapPin, Send, LogOut } from 'lucide-react';
+import { Search, Bell, MessageCircle, Home, AlertTriangle, User, Heart, MessageSquare, Share2, Camera, FileText, BarChart3, MapPin, Send, LogOut, Check, X, UserPlus } from 'lucide-react';
 import './HomePage.css';
 import TerafacLogo from '../assets/icons/Terafac_Logo_bg.png';
 import Chat from './Chat';
 import Profile from './Profile';
 import { auth, db } from "../firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, query, where, orderBy, limit } from "firebase/firestore";
 import { addDoc, serverTimestamp } from 'firebase/firestore';
 
 const HomePage = () => {
@@ -21,67 +22,16 @@ const HomePage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [viewingUser, setViewingUser] = useState(null);
+  
+  // Notification system states
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  
   const navigate = useNavigate();
 
-  const [posts, setPosts] = useState([
-    {
-      id: 1,
-      user: "Sarah Johnson",
-      company: "Tata Steel Manufacturing",
-      location: "Mumbai, Maharashtra",
-      avatar: "https://images.unsplash.com/photo-1494790108755-2616b612b786?w=50&h=50&fit=crop&crop=face",
-      time: "2 hours ago",
-      content: "Production efficiency increased by 12% this quarter! Great teamwork on optimizing the assembly line process. 🚀",
-      likes: 24,
-      comments: 8,
-      shares: 3,
-      liked: false,
-      commentsList: []
-    },
-    {
-      id: 2,
-      user: "Rajesh Kumar",
-      company: "Mahindra Auto Parts",
-      location: "Chennai, Tamil Nadu",
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=50&h=50&fit=crop&crop=face",
-      time: "4 hours ago",
-      content: "Implementing new quality control measures using IoT sensors. Defect rate down by 35% in just 2 weeks! #QualityFirst #IoT",
-      image: "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=400&h=250&fit=crop",
-      likes: 47,
-      comments: 12,
-      shares: 8,
-      liked: false,
-      commentsList: []
-    },
-    {
-      id: 3,
-      user: "Priya Sharma",
-      company: "Green Tech Solutions",
-      location: "Bangalore, Karnataka",
-      avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=50&h=50&fit=crop&crop=face",
-      time: "6 hours ago",
-      content: "Excited to announce our partnership with local suppliers for sustainable packaging solutions. Together we're reducing our carbon footprint by 40%! 🌱",
-      likes: 89,
-      comments: 23,
-      shares: 15,
-      liked: false,
-      commentsList: []
-    },
-    {
-      id: 4,
-      user: "Amit Patel",
-      company: "Innovation Metals Ltd",
-      location: "Pune, Maharashtra",
-      avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=50&h=50&fit=crop&crop=face",
-      time: "8 hours ago",
-      content: "Our new automated welding system is performing beyond expectations. Precision increased by 28% and production time reduced by 20%. The future of manufacturing is here!",
-      likes: 156,
-      comments: 34,
-      shares: 22,
-      liked: false,
-      commentsList: []
-    }
-  ]);
+  // Remove the static posts array - we'll fetch from Firebase
+  const [posts, setPosts] = useState([]);
 
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [activePostId, setActivePostId] = useState(null);
@@ -102,6 +52,136 @@ const HomePage = () => {
     { label: "Manufacturing Jobs", value: "1.2K", trend: "+15%" }
   ];
 
+  // Fetch notifications for current user with better error handling
+  const fetchNotifications = async () => {
+    if (!auth.currentUser) return;
+
+    try {
+      // First, try to get notifications without orderBy to avoid index issues
+      const notificationsQuery = query(
+        collection(db, 'notifications'),
+        where('recipientId', '==', auth.currentUser.uid),
+        limit(20) // Limit to prevent too much data
+      );
+      
+      const snapshot = await getDocs(notificationsQuery);
+      const userNotifications = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      // Sort on client side to avoid index requirements
+      const sortedNotifications = userNotifications.sort((a, b) => {
+        const aTime = a.timestamp?.seconds || 0;
+        const bTime = b.timestamp?.seconds || 0;
+        return bTime - aTime;
+      });
+
+      setNotifications(sortedNotifications);
+      
+      // Count unread notifications
+      const unread = sortedNotifications.filter(notif => !notif.read).length;
+      setUnreadCount(unread);
+      
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+      // Fallback: Set empty notifications to prevent UI issues
+      setNotifications([]);
+      setUnreadCount(0);
+    }
+  };
+
+  // Handle follow request acceptance with better error handling
+  const handleAcceptFollowRequest = async (notification) => {
+    try {
+      if (!auth.currentUser || !notification.senderId) {
+        throw new Error('Missing user information');
+      }
+
+      const currentUserRef = doc(db, 'users', auth.currentUser.uid);
+      const senderRef = doc(db, 'users', notification.senderId);
+
+      // Get current user data first to check existing arrays
+      const currentUserSnap = await getDoc(currentUserRef);
+      const currentUserData = currentUserSnap.data() || {};
+
+      // Add to followers/following with safety checks
+      await updateDoc(currentUserRef, {
+        followers: arrayUnion(notification.senderId),
+        followRequests: arrayRemove(notification.senderId)
+      });
+
+      await updateDoc(senderRef, {
+        following: arrayUnion(auth.currentUser.uid)
+      });
+
+      // Delete the notification
+      await deleteDoc(doc(db, 'notifications', notification.id));
+
+      // Create acceptance notification for sender
+      if (userData?.firstName && userData?.lastName) {
+        await addDoc(collection(db, 'notifications'), {
+          recipientId: notification.senderId,
+          senderId: auth.currentUser.uid,
+          senderName: `${userData.firstName} ${userData.lastName}`,
+          senderAvatar: userData.avatar || '',
+          type: 'follow_accepted',
+          message: `${userData.firstName} ${userData.lastName} accepted your follow request`,
+          read: false,
+          timestamp: serverTimestamp()
+        });
+      }
+
+      // Refresh notifications
+      await fetchNotifications();
+      alert('Follow request accepted!');
+
+    } catch (error) {
+      console.error('Error accepting follow request:', error);
+      alert('Failed to accept follow request. Please try again.');
+    }
+  };
+
+  // Handle follow request rejection with better error handling
+  const handleRejectFollowRequest = async (notification) => {
+    try {
+      if (!auth.currentUser || !notification.senderId) {
+        throw new Error('Missing user information');
+      }
+
+      const currentUserRef = doc(db, 'users', auth.currentUser.uid);
+
+      // Remove from follow requests
+      await updateDoc(currentUserRef, {
+        followRequests: arrayRemove(notification.senderId)
+      });
+
+      // Delete the notification
+      await deleteDoc(doc(db, 'notifications', notification.id));
+
+      // Refresh notifications
+      await fetchNotifications();
+      alert('Follow request rejected');
+
+    } catch (error) {
+      console.error('Error rejecting follow request:', error);
+      alert('Failed to reject follow request. Please try again.');
+    }
+  };
+
+  // Mark notification as read with error handling
+  const markAsRead = async (notificationId) => {
+    try {
+      await updateDoc(doc(db, 'notifications', notificationId), {
+        read: true
+      });
+      await fetchNotifications();
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      // Don't show alert for this as it's not critical
+    }
+  };
+
   // Handle photo selection
   const handlePhotoClick = () => {
     fileInputRef.current?.click();
@@ -119,28 +199,28 @@ const HomePage = () => {
   };
 
   const handlePost = async () => {
-  const user = auth.currentUser;
-  if (!user || (!newPostText.trim() && !selectedImage)) return;
+    const user = auth.currentUser;
+    if (!user || (!newPostText.trim() && !selectedImage)) return;
 
-  // Handle posting
+    // Handle posting
     const post = {
       userId: user.uid,
-      userName: `${profileData.firstName} ${profileData.lastName}`,
-      company: profileData.company,
-      role: profileData.role,
-      city: profileData.city || '',
-      state: profileData.state || '',
-      avatar: profileData.avatar || '',
+      userName: `${profileData?.firstName || ''} ${profileData?.lastName || ''}`,
+      company: profileData?.company || '',
+      role: profileData?.role || '',
+      city: profileData?.city || '',
+      state: profileData?.state || '',
+      avatar: profileData?.avatar || '',
       content: newPostText,
       image: selectedImage || '',
       likes: 0,
       shares: 0,
-      comments: [],
+      comments: 0,
       timestamp: serverTimestamp(),
     };
 
     try {
-      await addDoc(collection(db, "posts"), post);  // Save to Firestore
+      await addDoc(collection(db, "posts"), post);
       setNewPostText('');
       setSelectedImage(null);
       setShowCreatePost(false);
@@ -151,14 +231,14 @@ const HomePage = () => {
     }
   };
 
-  // Handle like
+  // Handle like - Update this to work with Firebase posts
   const handleLike = (postId) => {
     setPosts(posts.map(post => {
       if (post.id === postId) {
         return {
           ...post,
           liked: !post.liked,
-          likes: post.liked ? post.likes - 1 : post.likes + 1
+          likes: post.liked ? (post.likes || 1) - 1 : (post.likes || 0) + 1
         };
       }
       return post;
@@ -177,12 +257,12 @@ const HomePage = () => {
         if (post.id === activePostId) {
           return {
             ...post,
-            comments: post.comments + 1,
+            comments: (post.comments || 0) + 1,
             commentsList: [
-              ...post.commentsList,
+              ...(post.commentsList || []),
               {
                 id: Date.now(),
-                user: "Sai Murari",
+                user: `${profileData?.firstName || ''} ${profileData?.lastName || ''}`,
                 text: newComment,
                 time: "Just now"
               }
@@ -202,7 +282,7 @@ const HomePage = () => {
       if (post.id === postId) {
         return {
           ...post,
-          shares: post.shares + 1
+          shares: (post.shares || 0) + 1
         };
       }
       return post;
@@ -234,72 +314,123 @@ const HomePage = () => {
     }
   };
 
-   useEffect(() => {
+  // FIXED: Fetch posts from Firebase with better error handling
+  const fetchPosts = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, 'posts'));
+      const allPosts = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data(),
+        liked: false, // Add default liked state for UI
+        commentsList: doc.data().commentsList || []
+      }));
+      
+      // Sort by timestamp descending (newest first)
+      const sortedPosts = allPosts.sort((a, b) => {
+        if (a.timestamp?.seconds && b.timestamp?.seconds) {
+          return b.timestamp.seconds - a.timestamp.seconds;
+        }
+        return 0;
+      });
+      
+      setPosts(sortedPosts);
+    } catch (error) {
+      console.error("Error fetching posts:", error);
+      // Set empty posts array to prevent UI issues
+      setPosts([]);
+    }
+  };
+
+  useEffect(() => {
     const fetchUserProfile = async () => {
       const user = auth.currentUser;
-      if (!user) return;
-
-      const userRef = doc(db, "users", user.uid);
-      const userSnap = await getDoc(userRef);
-
-      if (userSnap.exists()) {
-        const data = userSnap.data();
-        setProfileData(data);  
-        setUserData(data);
+      if (!user) {
+        setLoading(false);
+        return;
       }
-      setLoading(false);
+
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          setProfileData(data);  
+          setUserData(data);
+        }
+      } catch (error) {
+        console.error("Error fetching user profile:", error);
+      } finally {
+        setLoading(false);
+      }
     };
 
     // Initial fetch
     fetchUserProfile();
+    
+    // Only fetch notifications if user is logged in
+    if (auth.currentUser) {
+      fetchNotifications();
+    }
 
-    // Listen for localStorage updates
+    // Listen for localStorage updates (profile changes)
     const interval = setInterval(() => {
       if (localStorage.getItem("profileUpdated")) {
         fetchUserProfile();
         localStorage.removeItem("profileUpdated");
       }
-    }, 1000); // checks every second
+      
+      // ADDED: Listen for post deletions
+      if (localStorage.getItem("postsUpdated")) {
+        fetchPosts();
+        localStorage.removeItem("postsUpdated");
+      }
+
+      // Refresh notifications periodically (only if user is logged in)
+      if (auth.currentUser) {
+        fetchNotifications();
+      }
+    }, 5000); // Reduced frequency to every 5 seconds
 
     return () => clearInterval(interval);
   }, []);
 
-const handleSearch = async () => {
-  const usersRef = collection(db, 'users');
-  const snapshot = await getDocs(usersRef);
-  const allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  // Initial posts fetch
+  useEffect(() => {
+    if (auth.currentUser) {
+      fetchPosts();
+    }
+  }, []);
 
-  const query = searchQuery.toLowerCase();
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
 
-  const matchedUser = allUsers.find(user =>
-    `${user.firstName} ${user.lastName}`.toLowerCase() === query ||
-    user.email?.toLowerCase() === query
-  );
+    try {
+      const usersRef = collection(db, 'users');
+      const snapshot = await getDocs(usersRef);
+      const allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-  if (matchedUser) {
-     navigate(`/profile/${matchedUser.id}`); // Either use user.uid or doc.id
-  } else {
-    alert("No user found with that name or email.");
-  }
-};
+      const query = searchQuery.toLowerCase();
 
-const fetchPosts = async () => {
-  const snapshot = await getDocs(collection(db, 'posts'));
-  const allPosts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  // Sort by timestamp descending
-  setPosts(allPosts.sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds));
-};
+      const matchedUser = allUsers.find(user =>
+        `${user.firstName || ''} ${user.lastName || ''}`.toLowerCase().includes(query) ||
+        user.email?.toLowerCase().includes(query)
+      );
 
-useEffect(() => {
-  fetchPosts();
-}, []);
+      if (matchedUser) {
+         navigate(`/profile/${matchedUser.id}`);
+      } else {
+        alert("No user found with that name or email.");
+      }
+    } catch (error) {
+      console.error("Error searching users:", error);
+      alert("Search failed. Please try again.");
+    }
+  };
 
-
-
-if (loading) return <div>Loading...</div>;
+  if (loading) return <div>Loading...</div>;
 
   return (
-    
     <div className="homepage-container">
       {/* Header */}
       <header className="homepage-header">
@@ -327,10 +458,110 @@ if (loading) return <div>Loading...</div>;
                 }}
               />
             </button>
-            <button className="header-btn">
-              <Bell size={20} />
-              <span className="notification-badge">3</span>
-            </button>
+            
+            {/* Notifications Button */}
+            <div className="notifications-container">
+              <button 
+                className="header-btn notifications-btn"
+                onClick={() => setShowNotifications(!showNotifications)}
+              >
+                <Bell size={20} />
+                {unreadCount > 0 && (
+                  <span className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                )}
+              </button>
+
+              {/* Notifications Dropdown */}
+              {showNotifications && (
+                <div className="notifications-dropdown">
+                  <div className="notifications-header">
+                    <h3>Notifications</h3>
+                    <button 
+                      className="close-notifications"
+                      onClick={() => setShowNotifications(false)}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                  
+                  <div className="notifications-list">
+                    {notifications.length === 0 ? (
+                      <div className="no-notifications">
+                        <p>No notifications yet</p>
+                      </div>
+                    ) : (
+                      notifications.map(notification => (
+                        <div 
+                          key={notification.id} 
+                          className={`notification-item ${!notification.read ? 'unread' : ''}`}
+                          onClick={() => !notification.read && markAsRead(notification.id)}
+                        >
+                          <div className="notification-avatar">
+                            {notification.senderAvatar ? (
+                              <img src={notification.senderAvatar} alt={notification.senderName} />
+                            ) : (
+                              <div className="avatar-placeholder">
+                                {notification.senderName?.split(' ').map(n => n[0]).join('') || 'U'}
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="notification-content">
+                            <div className="notification-message">
+                              {notification.type === 'follow_request' && (
+                                <div className="follow-request">
+                                  <UserPlus size={16} className="notification-icon" />
+                                  <span>{notification.message}</span>
+                                </div>
+                              )}
+                              {notification.type === 'follow_accepted' && (
+                                <div className="follow-accepted">
+                                  <Check size={16} className="notification-icon" />
+                                  <span>{notification.message}</span>
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="notification-time">
+                              {notification.timestamp?.seconds ? 
+                                new Date(notification.timestamp.seconds * 1000).toLocaleString() : 
+                                'Just now'
+                              }
+                            </div>
+
+                            {notification.type === 'follow_request' && (
+                              <div className="follow-request-actions">
+                                <button 
+                                  className="accept-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAcceptFollowRequest(notification);
+                                  }}
+                                >
+                                  <Check size={14} />
+                                  Accept
+                                </button>
+                                <button 
+                                  className="reject-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRejectFollowRequest(notification);
+                                  }}
+                                >
+                                  <X size={14} />
+                                  Reject
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            
             <button 
               className="header-btn logout-btn" 
               onClick={handleLogout}
@@ -342,6 +573,7 @@ if (loading) return <div>Loading...</div>;
         </div>
       </header>
 
+      {/* Rest of the component remains the same... */}
       {/* Main Content */}
       <div className="main-content">
         
@@ -358,15 +590,23 @@ if (loading) return <div>Loading...</div>;
                 {/* Profile Card */}
                 <div className="card profile-card">
                   <div className="profile-avatar">
-                    <span>
-                      {userData?.firstName && userData?.lastName
-                        ? `${userData.firstName[0]}${userData.lastName[0]}`.toUpperCase()
-                        : "SM"}
-                    </span>
+                    {userData?.avatar ? (
+                      <img 
+                        src={userData.avatar} 
+                        alt="Profile" 
+                        className="profile-avatar-image"
+                      />
+                    ) : (
+                      <span>
+                        {userData?.firstName && userData?.lastName
+                          ? `${userData.firstName[0]}${userData.lastName[0]}`.toUpperCase()
+                          : "SM"}
+                      </span>
+                    )}
                   </div>
-                  <h3 className="profile-name">{profileData.firstName} {profileData.lastName}</h3>
-                  <p className="profile-role">{profileData.role} </p>
-                  <p className="profile-company">{profileData.company}</p>
+                  <h3 className="profile-name">{profileData?.firstName} {profileData?.lastName}</h3>
+                  <p className="profile-role">{profileData?.role}</p>
+                  <p className="profile-company">{profileData?.company}</p>
                 </div>
 
                 {/* Quick Stats */}
@@ -390,11 +630,19 @@ if (loading) return <div>Loading...</div>;
                 <div className="create-post">
                   <div className="create-post-row">
                     <div className="user-avatar">
-                      <span>
-                      {userData?.firstName && userData?.lastName
-                        ? `${userData.firstName[0]}${userData.lastName[0]}`.toUpperCase()
-                        : "SM"}
-                    </span>
+                      {userData?.avatar ? (
+                        <img 
+                          src={userData.avatar} 
+                          alt="Profile" 
+                          className="user-avatar-image"
+                        />
+                      ) : (
+                        <span>
+                          {userData?.firstName && userData?.lastName
+                            ? `${userData.firstName[0]}${userData.lastName[0]}`.toUpperCase()
+                            : "SM"}
+                        </span>
+                      )}
                     </div>
                     <button 
                       className="create-post-input"
@@ -455,65 +703,101 @@ if (loading) return <div>Loading...</div>;
 
                 {/* Posts */}
                 <div className="posts-container">
-                  {posts.map((post) => (
-                    <div key={post.id} className="post-card">
-                      <div className="post-content">
-                        <div className="post-header">
-                          <img src={post.avatar} alt="" className="post-avatar" />
-                          <div className="post-user-info">
-                            <h3 className="post-username">{post.userName}</h3>
-                              <p className="post-role-company">{post.role} at {post.company}</p>
-                              <div className="post-meta">
-                                <MapPin size={12} />
-                                <span>{post.city}, {post.state}</span>
+                  {posts.length === 0 ? (
+                    <div className="no-posts">
+                      <p>No posts available. Be the first to share something!</p>
+                    </div>
+                  ) : (
+                    posts.map((post) => (
+                      <div key={post.id} className="post-card">
+                        <div className="post-content">
+                          <div className="post-header">
+                            {post.avatar ? (
+                              <img 
+                                src={post.avatar} 
+                                alt="" 
+                                className="post-avatar"
+                              />
+                            ) : (
+                              <div className="post-avatar-fallback">
+                                {post.userName ? 
+                                  post.userName.split(' ').map(n => n[0]).join('').toUpperCase() : 
+                                  'MP'
+                                }
                               </div>
+                            )}
+                            <div className="post-user-info">
+                              <h3 className="post-username">{post.userName || post.user}</h3>
+                              <p className="post-role-company">
+                                {post.role && post.company ? `${post.role} at ${post.company}` : 
+                                 post.company || 'Manufacturing Professional'}
+                              </p>
+                              {(post.city && post.state) && (
+                                <div className="post-meta">
+                                  <MapPin size={12} />
+                                  <span>{post.city}, {post.state}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <div className="post-text">
+                            <p>{post.content}</p>
+                            {post.image && (
+                              <img src={post.image} alt="" className="post-image" />
+                            )}
+                          </div>
+                          
+                          <div className="post-actions">
+                            <button 
+                              className={`action-btn like-btn ${post.liked ? 'liked' : ''}`}
+                              onClick={() => handleLike(post.id)}
+                            >
+                              <Heart size={20} fill={post.liked ? '#ef4444' : 'none'} />
+                              <span>{post.likes || 0} Like</span>
+                            </button>
+                            <button 
+                              className="action-btn comment-btn"
+                              onClick={() => handleComment(post.id)}
+                            >
+                              <MessageSquare size={20} />
+                              <span>{post.comments || 0} Comment</span>
+                            </button>
+                            <button 
+                              className="action-btn share-btn"
+                              onClick={() => handleShare(post.id)}
+                            >
+                              <Share2 size={20} />
+                              <span>{post.shares || 0} Share</span>
+                            </button>
                           </div>
                         </div>
-                        
-                        <div className="post-text">
-                          <p>{post.content}</p>
-                          {post.image && (
-                            <img src={post.image} alt="" className="post-image" />
-                          )}
-                        </div>
-                        
-                        <div className="post-actions">
-                          <button 
-                            className={`action-btn like-btn ${post.liked ? 'liked' : ''}`}
-                            onClick={() => handleLike(post.id)}
-                          >
-                            <Heart size={20} fill={post.liked ? '#ef4444' : 'none'} />
-                            <span>{post.likes} Like</span>
-                          </button>
-                          <button 
-                            className="action-btn comment-btn"
-                            onClick={() => handleComment(post.id)}
-                          >
-                            <MessageSquare size={20} />
-                            <span>{post.comments} Comment</span>
-                          </button>
-                          <button 
-                            className="action-btn share-btn"
-                            onClick={() => handleShare(post.id)}
-                          >
-                            <Share2 size={20} />
-                            <span>{post.shares} Share</span>
-                          </button>
-                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Mobile/Tablet: Single column layout */}
+            {/* Mobile/Tablet layout and rest of component... */}
             <div className="mobile-layout">
               {/* Create Post - Mobile */}
               <div className="mobile-create-post">
                 <div className="mobile-create-row">
                   <div className="user-avatar">
-                    <span>SM</span>
+                    {userData?.avatar ? (
+                      <img 
+                        src={userData.avatar} 
+                        alt="Profile" 
+                        className="user-avatar-image"
+                      />
+                    ) : (
+                      <span>
+                        {userData?.firstName && userData?.lastName
+                          ? `${userData.firstName[0]}${userData.lastName[0]}`.toUpperCase()
+                          : "SM"}
+                      </span>
+                    )}
                   </div>
                   <input
                     type="text"
@@ -530,50 +814,74 @@ if (loading) return <div>Loading...</div>;
 
               {/* Posts - Mobile */}
               <div className="posts-container">
-                {posts.map((post) => (
-                  <div key={post.id} className="mobile-post-card">
-                    <div className="mobile-post-content">
-                      <div className="mobile-post-header">
-                        <img src={post.avatar} alt="" className="mobile-post-avatar" />
-                        <div className="post-user-info">
-                          <h3 className="mobile-post-username">{post.user}</h3>
-                          <p className="mobile-post-time">{post.time}</p>
+                {posts.length === 0 ? (
+                  <div className="no-posts">
+                    <p>No posts available. Be the first to share something!</p>
+                  </div>
+                ) : (
+                  posts.map((post) => (
+                    <div key={post.id} className="mobile-post-card">
+                      <div className="mobile-post-content">
+                        <div className="mobile-post-header">
+                          {post.avatar ? (
+                            <img 
+                              src={post.avatar} 
+                              alt="" 
+                              className="mobile-post-avatar"
+                            />
+                          ) : (
+                            <div className="mobile-post-avatar-fallback">
+                              {post.userName ? 
+                                post.userName.split(' ').map(n => n[0]).join('').toUpperCase() : 
+                                'MP'
+                              }
+                            </div>
+                          )}
+                          <div className="post-user-info">
+                            <h3 className="mobile-post-username">{post.userName || post.user}</h3>
+                            <p className="mobile-post-time">
+                              {post.timestamp?.seconds ? 
+                                new Date(post.timestamp.seconds * 1000).toLocaleString() : 
+                                post.time || 'Unknown time'
+                              }
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="mobile-post-text">
+                          <p>{post.content}</p>
+                          {post.image && (
+                            <img src={post.image} alt="" className="mobile-post-image" />
+                          )}
+                        </div>
+                        
+                        <div className="mobile-post-actions">
+                          <button 
+                            className={`mobile-action-btn ${post.liked ? 'liked' : ''}`}
+                            onClick={() => handleLike(post.id)}
+                          >
+                            <Heart size={16} fill={post.liked ? '#ef4444' : 'none'} />
+                            <span>Like</span>
+                          </button>
+                          <button 
+                            className="mobile-action-btn"
+                            onClick={() => handleComment(post.id)}
+                          >
+                            <MessageSquare size={16} />
+                            <span>Comment</span>
+                          </button>
+                          <button 
+                            className="mobile-action-btn"
+                            onClick={() => handleShare(post.id)}
+                          >
+                            <Share2 size={16} />
+                            <span>Share</span>
+                          </button>
                         </div>
                       </div>
-                      
-                      <div className="mobile-post-text">
-                        <p>{post.content}</p>
-                        {post.image && (
-                          <img src={post.image} alt="" className="mobile-post-image" />
-                        )}
-                      </div>
-                      
-                      <div className="mobile-post-actions">
-                        <button 
-                          className={`mobile-action-btn ${post.liked ? 'liked' : ''}`}
-                          onClick={() => handleLike(post.id)}
-                        >
-                          <Heart size={16} fill={post.liked ? '#ef4444' : 'none'} />
-                          <span>Like</span>
-                        </button>
-                        <button 
-                          className="mobile-action-btn"
-                          onClick={() => handleComment(post.id)}
-                        >
-                          <MessageSquare size={16} />
-                          <span>Comment</span>
-                        </button>
-                        <button 
-                          className="mobile-action-btn"
-                          onClick={() => handleShare(post.id)}
-                        >
-                          <Share2 size={16} />
-                          <span>Share</span>
-                        </button>
-                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           </>

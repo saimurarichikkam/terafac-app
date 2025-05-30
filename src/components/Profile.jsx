@@ -23,10 +23,11 @@ import {
   Share2,
   MoreHorizontal,
   Save,
-  X
+  X,
+  Trash2
 } from 'lucide-react';
 import './Profile.css';
-import { query, where } from 'firebase/firestore';
+import { query, where, deleteDoc } from 'firebase/firestore';
 import { auth, db } from "../firebase";
 import { doc, getDoc, setDoc, collection, getDocs } from "firebase/firestore";
 
@@ -37,14 +38,14 @@ const Profile = () => {
   const [userPosts, setUserPosts] = useState([]);
   const [profileData, setProfileData] = useState(null);
   const [editingSection, setEditingSection] = useState(null);
-  const [editData, setEditData] = useState({ ...profileData });
+  const [editData, setEditData] = useState({});
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const fileInputRef = useRef(null);
   
   const profileStats = [
-    { label: 'Posts', value: '47', icon: MessageSquare },
+    { label: 'Posts', value: userPosts.length.toString(), icon: MessageSquare },
     { label: 'Connections', value: '1.2K', icon: Users },
     { label: 'Profile Views', value: '2.8K', icon: Eye },
     { label: 'Likes Received', value: '856', icon: Heart }
@@ -101,35 +102,40 @@ const Profile = () => {
     }
   ];
 
-    useEffect(() => {
-      const fetchUserData = async () => {
-        const user = auth.currentUser;
-        if (!user) return;
+  useEffect(() => {
+    const fetchUserData = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
 
-        const userRef = doc(db, "users", user.uid);
-        const userSnap = await getDoc(userRef);
+      const userRef = doc(db, "users", user.uid);
+      const userSnap = await getDoc(userRef);
 
-        if (userSnap.exists()) {
-          const data = userSnap.data();
-          setProfileData(data);
+      if (userSnap.exists()) {
+        const data = userSnap.data();
+        setProfileData(data);
 
-          // Initialize all 3 fields for the edit form
-          setEditData({
-            name: `${data.firstName || ""} ${data.lastName || ""}`.trim(),
-            title: data.role || "",
-            company: data.company || ""
-          });
-        } else {
-          console.log("No profile found.");
-        }
+        // Initialize all fields for the edit form
+        setEditData({
+          name: `${data.firstName || ""} ${data.lastName || ""}`.trim(),
+          title: data.role || "",
+          company: data.company || "",
+          phone: data.phone || "",
+          city: data.city || "",
+          state: data.state || "",
+          skills: (data.skills || []).join(", "),
+          avatar: data.avatar || ""
+        });
+      } else {
+        console.log("No profile found.");
+      }
 
-        setLoading(false);
-      };
+      setLoading(false);
+    };
 
-      fetchUserData();
-    }, []);
+    fetchUserData();
+  }, []);
 
-    useEffect(() => {
+  useEffect(() => {
     const fetchAllUsers = async () => {
       const usersRef = collection(db, 'users');
       const snapshot = await getDocs(usersRef);
@@ -155,34 +161,60 @@ const Profile = () => {
 
   useEffect(() => {
     const fetchUserPosts = async () => {
+      if (!auth.currentUser) return;
+      
       const q = query(collection(db, "posts"), where("userId", "==", auth.currentUser.uid));
       const snapshot = await getDocs(q);
-      const userPosts = snapshot.docs.map(doc => doc.data());
-      setUserPosts(userPosts);  // Add setUserPosts to state
+      const userPosts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setUserPosts(userPosts);
     };
 
-    if (auth.currentUser) {
-      fetchUserPosts();
-    }
+    fetchUserPosts();
   }, []);
 
-  
+  // FIXED: Delete post from Firebase completely
+  const handleDeletePost = async (postId) => {
+    // Show confirmation dialog
+    const confirmDelete = window.confirm("Are you sure you want to delete this post? This action cannot be undone.");
+    
+    if (!confirmDelete) return;
+
+    try {
+      // Delete from Firestore completely
+      await deleteDoc(doc(db, "posts", postId));
+      
+      // Update local state immediately for better UX
+      setUserPosts(userPosts.filter(post => post.id !== postId));
+      
+      // Set a flag in localStorage to notify HomePage to refresh
+      localStorage.setItem("postsUpdated", Date.now().toString());
+      
+      alert("Post deleted successfully");
+    } catch (error) {
+      console.error("Error deleting post:", error);
+      alert("Failed to delete post. Please try again.");
+    }
+  };
 
   const saveSection = async (updates) => {
-  const user = auth.currentUser;
-  if (!user) return;
+    const user = auth.currentUser;
+    if (!user) return;
 
-  try {
-    const updated = { ...profileData, ...updates };
-    await setDoc(doc(db, "users", user.uid), updated);
-    setProfileData(updated);
-    setEditingSection(null);
-    alert("Profile updated!");
-  } catch (error) {
-    console.error("Error saving section:", error);
-    alert("Failed to save section.");
-  }
-};
+    try {
+      const updated = { ...profileData, ...updates };
+      await setDoc(doc(db, "users", user.uid), updated);
+      setProfileData(updated);
+      setEditingSection(null);
+      
+      // ADDED: Notify HomePage of profile updates
+      localStorage.setItem("profileUpdated", Date.now().toString());
+      
+      alert("Profile updated!");
+    } catch (error) {
+      console.error("Error saving section:", error);
+      alert("Failed to save section.");
+    }
+  };
 
   const handleEdit = () => {
     const name = `${profileData.firstName || ""} ${profileData.lastName || ""}`.trim();
@@ -191,10 +223,13 @@ const Profile = () => {
       title: profileData.role || "",
       company: profileData.company || "",
       avatar: profileData.avatar || "",
+      phone: profileData.phone || "",
+      city: profileData.city || "",
+      state: profileData.state || "",
+      skills: (profileData.skills || []).join(", ")
     });
     setIsEditing(true);
   };
-
 
   const handleSave = async () => {
     const user = auth.currentUser;
@@ -227,7 +262,10 @@ const Profile = () => {
       });
       setIsEditing(false);
       alert("Profile updated successfully!");
-      localStorage.setItem("profileUpdated", Date.now());
+      
+      // ADDED: Notify HomePage of profile updates including avatar
+      localStorage.setItem("profileUpdated", Date.now().toString());
+      
     } catch (error) {
       console.error("Error updating profile:", error);
       alert("Failed to update profile. Please try again.");
@@ -235,7 +273,12 @@ const Profile = () => {
   };
 
   const handleCancel = () => {
-    setEditData({ ...profileData });
+    setEditData({ 
+      name: `${profileData.firstName || ""} ${profileData.lastName || ""}`.trim(),
+      title: profileData.role || "",
+      company: profileData.company || "",
+      avatar: profileData.avatar || ""
+    });
     setIsEditing(false);
   };
 
@@ -248,7 +291,8 @@ const Profile = () => {
     fileInputRef.current?.click();
   };
 
-  const handlePhotoChange = (event) => {
+  // FIXED: Save avatar updates to Firebase and notify HomePage
+  const handlePhotoChange = async (event) => {
     const file = event.target.files[0];
     if (file) {
       // Validate file type
@@ -267,31 +311,57 @@ const Profile = () => {
       setIsUploadingPhoto(true);
 
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         const newAvatar = e.target.result;
-        setProfileData({ ...profileData, avatar: newAvatar });
-        setEditData({ ...editData, avatar: newAvatar });
-        setIsUploadingPhoto(false);
         
-        // Show success message
-        const successMsg = document.createElement('div');
-        successMsg.textContent = 'Profile photo updated successfully!';
-        successMsg.style.cssText = `
-          position: fixed;
-          top: 20px;
-          right: 20px;
-          background: #10b981;
-          color: white;
-          padding: 12px 24px;
-          border-radius: 8px;
-          z-index: 1000;
-          box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-        `;
-        document.body.appendChild(successMsg);
-        
-        setTimeout(() => {
-          document.body.removeChild(successMsg);
-        }, 3000);
+        try {
+          const user = auth.currentUser;
+          if (!user) return;
+
+          // Update profile data with new avatar
+          const updatedProfile = {
+            ...profileData,
+            avatar: newAvatar
+          };
+
+          // Save to Firebase immediately
+          await setDoc(doc(db, "users", user.uid), updatedProfile);
+          
+          // Update local state
+          setProfileData(updatedProfile);
+          setEditData({ ...editData, avatar: newAvatar });
+          setIsUploadingPhoto(false);
+          
+          // CRITICAL: Notify HomePage to refresh user data
+          localStorage.setItem("profileUpdated", Date.now().toString());
+          
+          // Show success message
+          const successMsg = document.createElement('div');
+          successMsg.textContent = 'Profile photo updated successfully!';
+          successMsg.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #10b981;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+          `;
+          document.body.appendChild(successMsg);
+          
+          setTimeout(() => {
+            if (document.body.contains(successMsg)) {
+              document.body.removeChild(successMsg);
+            }
+          }, 3000);
+          
+        } catch (error) {
+          console.error("Error updating avatar:", error);
+          setIsUploadingPhoto(false);
+          alert('Failed to update profile photo. Please try again.');
+        }
       };
       
       reader.onerror = () => {
@@ -306,7 +376,7 @@ const Profile = () => {
     event.target.value = '';
   };
 
-if (loading) return <p>Loading profile...</p>;
+  if (loading) return <p>Loading profile...</p>;
 
   return (
     <div className="profile-container">
@@ -319,11 +389,13 @@ if (loading) return <p>Loading profile...</p>;
                 <img src={profileData.avatar} alt="Profile" className="profile-avatar-large" />
               ) : (
                 <span className="profile-avatar-placeholder">
-                  {profileData?.firstName[0]}{profileData?.lastName[0]}
+                  {profileData?.firstName?.[0]}{profileData?.lastName?.[0]}
                 </span>
               )}
               {isUploadingPhoto && (
-                <div className="upload-overlay"><div className="upload-spinner" /></div>
+                <div className="upload-overlay">
+                  <div className="upload-spinner" />
+                </div>
               )}
               <input
                 type="file"
@@ -350,35 +422,48 @@ if (loading) return <p>Loading profile...</p>;
                     value={editData.name || ""}
                     onChange={(e) => handleInputChange("name", e.target.value)}
                     className="edit-input name-input"
+                    placeholder="Full Name"
                   />
-
                   <input
                     type="text"
                     value={editData.title || ""}
                     onChange={(e) => handleInputChange("title", e.target.value)}
                     className="edit-input title-input"
+                    placeholder="Job Title"
                   />
-
                   <input
                     type="text"
                     value={editData.company || ""}
                     onChange={(e) => handleInputChange("company", e.target.value)}
                     className="edit-input company-input"
+                    placeholder="Company"
                   />
                   <div className="edit-actions">
-                    <button onClick={handleSave} className="save-btn"><Save size={16} />Save</button>
-                    <button onClick={handleCancel} className="cancel-btn"><X size={16} />Cancel</button>
+                    <button onClick={handleSave} className="save-btn">
+                      <Save size={16} />Save
+                    </button>
+                    <button onClick={handleCancel} className="cancel-btn">
+                      <X size={16} />Cancel
+                    </button>
                   </div>
                 </div>
               ) : (
                 <>
-                  <h1 className="profile-name">{profileData.firstName} {profileData.lastName}</h1>
-                  <h2 className="profile-title">{profileData.role}</h2>
+                  <h1 className="profile-name">
+                    {profileData?.firstName} {profileData?.lastName}
+                  </h1>
+                  <h2 className="profile-title">{profileData?.role}</h2>
                   <div className="profile-meta">
-                    <span className="profile-company"><Building2 size={16} />{profileData.company}</span>
-                    <span className="profile-location"><MapPin size={16} />{profileData.city}, {profileData.state}</span>
+                    <span className="profile-company">
+                      <Building2 size={16} />{profileData?.company}
+                    </span>
+                    <span className="profile-location">
+                      <MapPin size={16} />{profileData?.city}, {profileData?.state}
+                    </span>
                   </div>
-                  <button onClick={handleEdit} className="edit-profile-btn"><Edit size={16} /> Edit Profile</button>
+                  <button onClick={handleEdit} className="edit-profile-btn">
+                    <Edit size={16} /> Edit Profile
+                  </button>
                 </>
               )}
             </div>
@@ -416,189 +501,195 @@ if (loading) return <p>Loading profile...</p>;
       <div className="profile-content">
         {activeSection === "overview" && (
           <div className="overview-section">
-            <div className="overview-grid">
-              {/* About */}
-              <div className="profile-card">
-                <div className="card-header">
-                  <h3>About</h3>
-                  <button onClick={() => setEditingSection("about")} className="edit-icon-btn">
-                    <Edit size={16} />
-                  </button>
-                </div>
-
-                {editingSection === "about" ? (
-                  <>
-                    <textarea
-                      value={editData.bio || ""}
-                      onChange={(e) => handleInputChange("bio", e.target.value)}
-                      className="edit-textarea"
-                    />
-                    <div className="edit-actions">
-                      <button onClick={() => saveSection({ bio: editData.bio })} className="save-btn">Save</button>
-                      <button onClick={() => setEditingSection(null)} className="cancel-btn">Cancel</button>
-                    </div>
-                  </>
-                ) : (
-                  <p>{profileData.bio || "No bio added yet."}</p>
-                )}
+            {/* Contact */}
+            <div className="profile-card">
+              <div className="card-header">
+                <h3>Contact Information</h3>
+                <button onClick={() => setEditingSection("contact")} className="edit-icon-btn">
+                  <Edit size={16} />
+                </button>
               </div>
 
-              {/* Contact */}
-              <div className="profile-card">
-                <div className="card-header">
-                  <h3>Contact Information</h3>
-                  <button onClick={() => setEditingSection("contact")} className="edit-icon-btn">
-                    <Edit size={16} />
-                  </button>
-                </div>
-
-                {editingSection === "contact" ? (
-                  <>
-                    <input
-                      type="text"
-                      value={editData.phone || ""}
-                      onChange={(e) => handleInputChange("phone", e.target.value)}
-                      placeholder="Phone"
-                      className="edit-input"
-                    />
-                    <input
-                      type="text"
-                      value={editData.city || ""}
-                      onChange={(e) => handleInputChange("city", e.target.value)}
-                      placeholder="City"
-                      className="edit-input"
-                    />
-                    <input
-                      type="text"
-                      value={editData.state || ""}
-                      onChange={(e) => handleInputChange("state", e.target.value)}
-                      placeholder="State"
-                      className="edit-input"
-                    />
-                    <div className="edit-actions">
-                      <button
-                        onClick={() =>
-                          saveSection({ phone: editData.phone, city: editData.city, state: editData.state })
-                        }
-                        className="save-btn"
-                      >
-                        Save
-                      </button>
-                      <button onClick={() => setEditingSection(null)} className="cancel-btn">
-                        Cancel
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="contact-info">
-                    <div><Mail size={18} /> {profileData.email}</div>
-                    <div><Phone size={18} /> {profileData.phone || "N/A"}</div>
-                    <div><MapPin size={18} /> {profileData.city}, {profileData.state}</div>
-                    <div><Calendar size={18} /> Joined {new Date(profileData.createdAt.seconds * 1000).toLocaleDateString()}</div>
+              {editingSection === "contact" ? (
+                <>
+                  <input
+                    type="text"
+                    value={editData.phone || ""}
+                    onChange={(e) => handleInputChange("phone", e.target.value)}
+                    placeholder="Phone"
+                    className="edit-input"
+                  />
+                  <input
+                    type="text"
+                    value={editData.city || ""}
+                    onChange={(e) => handleInputChange("city", e.target.value)}
+                    placeholder="City"
+                    className="edit-input"
+                  />
+                  <input
+                    type="text"
+                    value={editData.state || ""}
+                    onChange={(e) => handleInputChange("state", e.target.value)}
+                    placeholder="State"
+                    className="edit-input"
+                  />
+                  <div className="edit-actions">
+                    <button
+                      onClick={() =>
+                        saveSection({ 
+                          phone: editData.phone, 
+                          city: editData.city, 
+                          state: editData.state 
+                        })
+                      }
+                      className="save-btn"
+                    >
+                      Save
+                    </button>
+                    <button onClick={() => setEditingSection(null)} className="cancel-btn">
+                      Cancel
+                    </button>
                   </div>
-                )}
-              </div>
-
-              {/* Experience */}
-              <div className="profile-card">
-                <div className="card-header">
-                  <h3>Professional Experience</h3>
-                  <button onClick={() => setEditingSection("experience")} className="edit-icon-btn">
-                    <Edit size={16} />
-                  </button>
-                </div>
-                {editingSection === "experience" ? (
-                  <>
-                    <input
-                      type="text"
-                      value={editData.title || ""}
-                      onChange={(e) => handleInputChange("title", e.target.value)}
-                      placeholder="Role"
-                      className="edit-input"
-                    />
-                    <input
-                      type="text"
-                      value={editData.company || ""}
-                      onChange={(e) => handleInputChange("company", e.target.value)}
-                      placeholder="Company"
-                      className="edit-input"
-                    />
-                    <div className="edit-actions">
-                      <button
-                        onClick={() => saveSection({ role: editData.title, company: editData.company })}
-                        className="save-btn"
-                      >
-                        Save
-                      </button>
-                      <button onClick={() => setEditingSection(null)} className="cancel-btn">
-                        Cancel
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <p>{profileData.role} at {profileData.company} (2023 - Present)</p>
-                )}
-              </div>
-
-
-              {/* Skills */}
-              <div className="profile-card">
-                <div className="card-header">
-                  <h3>Skills</h3>
-                  <button onClick={() => setEditingSection("skills")} className="edit-icon-btn">
-                    <Edit size={16} />
-                  </button>
-                </div>
-                {editingSection === "skills" ? (
-                  <>
-                    <input
-                      type="text"
-                      value={editData.skills || ""}
-                      onChange={(e) => handleInputChange("skills", e.target.value)}
-                      placeholder="Comma-separated skills (e.g., React, JavaScript, IoT)"
-                      className="edit-input"
-                    />
-                    <div className="edit-actions">
-                      <button
-                        onClick={() => saveSection({ skills: editData.skills.split(",").map(s => s.trim()) })}
-                        className="save-btn"
-                      >
-                        Save
-                      </button>
-                      <button onClick={() => setEditingSection(null)} className="cancel-btn">
-                        Cancel
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="skills-grid">
-                    {(profileData.skills || []).map((skill, index) => (
-                      <span key={index} className="skill-tag">{skill}</span>
-                    ))}
+                </>
+              ) : (
+                <div className="contact-info">
+                  <div><Mail size={18} /> {profileData?.email}</div>
+                  <div><Phone size={18} /> {profileData?.phone || "N/A"}</div>
+                  <div><MapPin size={18} /> {profileData?.city}, {profileData?.state}</div>
+                  <div>
+                    <Calendar size={18} /> 
+                    Joined {profileData?.createdAt?.seconds ? 
+                      new Date(profileData.createdAt.seconds * 1000).toLocaleDateString() : 
+                      "Unknown"
+                    }
                   </div>
-                )}
+                </div>
+              )}
+            </div>
+
+            {/* Experience */}
+            <div className="profile-card">
+              <div className="card-header">
+                <h3>Professional Experience</h3>
+                <button onClick={() => setEditingSection("experience")} className="edit-icon-btn">
+                  <Edit size={16} />
+                </button>
               </div>
+              {editingSection === "experience" ? (
+                <>
+                  <input
+                    type="text"
+                    value={editData.title || ""}
+                    onChange={(e) => handleInputChange("title", e.target.value)}
+                    placeholder="Role"
+                    className="edit-input"
+                  />
+                  <input
+                    type="text"
+                    value={editData.company || ""}
+                    onChange={(e) => handleInputChange("company", e.target.value)}
+                    placeholder="Company"
+                    className="edit-input"
+                  />
+                  <div className="edit-actions">
+                    <button
+                      onClick={() => saveSection({ 
+                        role: editData.title, 
+                        company: editData.company 
+                      })}
+                      className="save-btn"
+                    >
+                      Save
+                    </button>
+                    <button onClick={() => setEditingSection(null)} className="cancel-btn">
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p>{profileData?.role} at {profileData?.company} (2023 - Present)</p>
+              )}
+            </div>
+
+            {/* Skills */}
+            <div className="profile-card">
+              <div className="card-header">
+                <h3>Skills</h3>
+                <button onClick={() => setEditingSection("skills")} className="edit-icon-btn">
+                  <Edit size={16} />
+                </button>
+              </div>
+              {editingSection === "skills" ? (
+                <>
+                  <input
+                    type="text"
+                    value={editData.skills || ""}
+                    onChange={(e) => handleInputChange("skills", e.target.value)}
+                    placeholder="Comma-separated skills (e.g., React, JavaScript, IoT)"
+                    className="edit-input"
+                  />
+                  <div className="edit-actions">
+                    <button
+                      onClick={() => saveSection({ 
+                        skills: editData.skills.split(",").map(s => s.trim()) 
+                      })}
+                      className="save-btn"
+                    >
+                      Save
+                    </button>
+                    <button onClick={() => setEditingSection(null)} className="cancel-btn">
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="skills-grid">
+                  {(profileData?.skills || []).map((skill, index) => (
+                    <span key={index} className="skill-tag">{skill}</span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {activeSection === "posts" && (
-         <div className="profile-posts">
-            <h3>Your Posts</h3>
-            {userPosts.map((post, idx) => (
-              <div key={idx} className="post-card">
-                <h4>{post.content}</h4>
-                {post.image && <img src={post.image} alt="post" />}
-                <p>{post.timestamp?.seconds ? new Date(post.timestamp.seconds * 1000).toLocaleString() : ''}</p>
-              </div>
-            ))}
+          <div className="profile-posts">
+            <h3>Your Posts ({userPosts.length})</h3>
+            {userPosts.length === 0 ? (
+              <p>No posts yet. Start sharing your manufacturing insights!</p>
+            ) : (
+              userPosts.map((post) => (
+                <div key={post.id} className="post-card">
+                  <div className="post-header">
+                    <div className="post-content-header">
+                      <h4>{post.content}</h4>
+                    </div>
+                    <button
+                      className="delete-post-btn"
+                      onClick={() => handleDeletePost(post.id)}
+                      title="Delete Post"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                  {post.image && <img src={post.image} alt="post" className="post-image" />}
+                  <p className="post-timestamp">
+                    {post.timestamp?.seconds ? 
+                      new Date(post.timestamp.seconds * 1000).toLocaleString() : 
+                      'Unknown date'
+                    }
+                  </p>
+                </div>
+              ))
+            )}
           </div>
         )}
 
         {activeSection === "connections" && (
           <div className="connections-section">
             <h3>Your Connections (0)</h3>
-            <p>No connections yet.</p>
+            <p>No connections yet. Start connecting with other professionals in the manufacturing industry!</p>
           </div>
         )}
 
@@ -606,7 +697,6 @@ if (loading) return <p>Loading profile...</p>;
           <div className="settings-section">
             <h3>Account Settings</h3>
             <div className="settings-grid">
-
               <div className="setting-card">
                 <div className="setting-header">
                   <Shield size={20} />
@@ -672,7 +762,6 @@ if (loading) return <p>Loading profile...</p>;
                   </div>
                 </div>
               </div>
-              
             </div>
           </div>
         )}

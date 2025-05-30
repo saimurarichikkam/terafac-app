@@ -804,3 +804,18 @@
     width: 32px;
     height: 32px;
 }
+
+/* Add this to Profile.css */
+.delete-post-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: red;
+  font-size: 16px;
+  margin-left: 10px;
+  transition: color 0.3s;
+}
+
+.delete-post-btn:hover {
+  color: darkred;
+}

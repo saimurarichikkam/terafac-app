@@ -29,6 +29,7 @@ const RegisterForm = () => {
   const [selectedState, setSelectedState] = useState("");
   const [cityOptions, setCityOptions] = useState([]);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const roleOptions = [
     "CEO/Founder", "CTO/Chief Technology Officer", "Production Manager", "Quality Control Manager",
@@ -65,57 +66,83 @@ const RegisterForm = () => {
     event.target.value = '';
   };
 
+  // Function to convert image to base64 string for Firebase storage
+  const convertImageToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleSubmit = async (e) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  if (
-    !formData.firstName ||
-    !formData.lastName ||
-    !formData.email ||
-    !formData.password ||
-    !formData.company ||
-    !formData.role ||
-    !formData.gender
-  ) {
-    alert("Please fill in all required fields");
-    return;
-  }
-
-  try {
-    // 1. Create Firebase Auth user
-    const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
-    const user = userCredential.user;
-
-    // 2. Create user profile data
-    const userProfile = {
-      uid: user.uid,
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      gender: formData.gender,
-      state: formData.state,
-      city: formData.city,
-      pincode: formData.pincode,
-      company: formData.company,
-      role: formData.role,
-      email: formData.email,
-      createdAt: new Date()
-    };
-
-    // 3. Save to Firestore
-    await setDoc(doc(db, "users", user.uid), userProfile);
-
-    alert("Registration successful!");
-    navigate("/login");
-
-  } catch (error) {
-    console.error("Error creating user:", error.message);
-    if (error.code === "auth/email-already-in-use") {
-      alert("This email is already registered. Please log in instead.");
-    } else {
-      alert(`Registration failed: ${error.message}`);
+    if (
+      !formData.firstName ||
+      !formData.lastName ||
+      !formData.email ||
+      !formData.password ||
+      !formData.company ||
+      !formData.role ||
+      !formData.gender
+    ) {
+      alert("Please fill in all required fields");
+      return;
     }
-  }
-};
+
+    setIsUploading(true);
+
+    try {
+      // 1. Create Firebase Auth user
+      const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+      const user = userCredential.user;
+
+      // 2. Convert profile photo to base64 if provided
+      let avatarBase64 = null;
+      if (formData.profilePhoto) {
+        try {
+          avatarBase64 = await convertImageToBase64(formData.profilePhoto);
+        } catch (error) {
+          console.error("Error converting image:", error);
+          alert("Failed to process profile photo. Registration will continue without photo.");
+        }
+      }
+
+      // 3. Create user profile data
+      const userProfile = {
+        uid: user.uid,
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        gender: formData.gender,
+        state: formData.state,
+        city: formData.city,
+        pincode: formData.pincode,
+        company: formData.company,
+        role: formData.role,
+        email: formData.email,
+        avatar: avatarBase64, // Save the base64 image string
+        createdAt: new Date()
+      };
+
+      // 4. Save to Firestore
+      await setDoc(doc(db, "users", user.uid), userProfile);
+
+      alert("Registration successful!");
+      navigate("/login");
+
+    } catch (error) {
+      console.error("Error creating user:", error.message);
+      if (error.code === "auth/email-already-in-use") {
+        alert("This email is already registered. Please log in instead.");
+      } else {
+        alert(`Registration failed: ${error.message}`);
+      }
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handleReset = () => {
     setFormData({
@@ -172,11 +199,19 @@ const RegisterForm = () => {
                     accept="image/jpeg,image/jpg,image/png,image/webp"
                     style={{ display: "none" }}
                   />
-                  <button type="button" className="photo-upload-btn" onClick={handlePhotoClick}>
+                  <button 
+                    type="button" 
+                    className="photo-upload-btn" 
+                    onClick={handlePhotoClick}
+                    disabled={isUploading}
+                  >
                     <Camera size={16} />
                   </button>
                 </div>
-                <p className="photo-help-text">Upload a professional photo (max 5MB)</p>
+                <p className="photo-help-text">
+                  Upload a professional photo (max 5MB)
+                  {photoPreview && " - Photo ready to upload!"}
+                </p>
               </div>
             </div>
 
@@ -189,6 +224,7 @@ const RegisterForm = () => {
                   value={formData.firstName}
                   onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                   required
+                  disabled={isUploading}
                 />
               </div>
               <div className="form-group">
@@ -198,6 +234,7 @@ const RegisterForm = () => {
                   value={formData.lastName}
                   onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                   required
+                  disabled={isUploading}
                 />
               </div>
             </div>
@@ -214,6 +251,7 @@ const RegisterForm = () => {
                       value={g}
                       checked={formData.gender === g}
                       onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                      disabled={isUploading}
                     />
                     {g.charAt(0).toUpperCase() + g.slice(1)}
                   </label>
@@ -233,6 +271,7 @@ const RegisterForm = () => {
                     setSelectedState(selected);
                     setCityOptions(indiaCities[selected] || []);
                   }}
+                  disabled={isUploading}
                 >
                   <option value="">Select State</option>
                   {indiaStates.map(state => (
@@ -246,7 +285,7 @@ const RegisterForm = () => {
                 <select
                   value={formData.city}
                   onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                  disabled={!formData.state}
+                  disabled={!formData.state || isUploading}
                 >
                   <option value="">Select City</option>
                   {cityOptions.map(city => (
@@ -263,6 +302,7 @@ const RegisterForm = () => {
                 type="text"
                 value={formData.pincode}
                 onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
+                disabled={isUploading}
               />
             </div>
 
@@ -274,6 +314,7 @@ const RegisterForm = () => {
                 value={formData.company}
                 onChange={(e) => setFormData({ ...formData, company: e.target.value })}
                 required
+                disabled={isUploading}
               />
             </div>
 
@@ -284,6 +325,7 @@ const RegisterForm = () => {
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                 required
+                disabled={isUploading}
               >
                 <option value="">Select your role</option>
                 {roleOptions.map(role => (
@@ -300,6 +342,7 @@ const RegisterForm = () => {
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 required
+                disabled={isUploading}
               />
             </div>
             <div className="form-group">
@@ -309,6 +352,7 @@ const RegisterForm = () => {
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 required
+                disabled={isUploading}
               />
             </div>
 
@@ -319,11 +363,20 @@ const RegisterForm = () => {
                 <Link to="/login">Login</Link>
               </div>
               <div className="btns">
-                <button type="button" className="btn reset" onClick={handleReset}>
+                <button 
+                  type="button" 
+                  className="btn reset" 
+                  onClick={handleReset}
+                  disabled={isUploading}
+                >
                   Reset
                 </button>
-                <button type="submit" className="btn submit">
-                  Register
+                <button 
+                  type="submit" 
+                  className="btn submit" 
+                  disabled={isUploading}
+                >
+                  {isUploading ? "Registering..." : "Register"}
                 </button>
               </div>
             </div>
