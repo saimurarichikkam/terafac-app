@@ -24,12 +24,15 @@ import {
   MoreHorizontal,
   Save,
   X,
-  Trash2
+  Trash2,
+  Search,
+  UserMinus,
+  MessageCircle
 } from 'lucide-react';
 import './Profile.css';
 import { query, where, deleteDoc } from 'firebase/firestore';
 import { auth, db } from "../firebase";
-import { doc, getDoc, setDoc, collection, getDocs } from "firebase/firestore";
+import { doc, getDoc, setDoc, collection, getDocs, updateDoc, arrayRemove } from "firebase/firestore";
 
 const Profile = () => {
   const [activeSection, setActiveSection] = useState('overview');
@@ -42,65 +45,150 @@ const Profile = () => {
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
+  
+  // Real connections states
+  const [connections, setConnections] = useState([]);
+  const [connectionsLoading, setConnectionsLoading] = useState(false);
+  const [connectionSearchTerm, setConnectionSearchTerm] = useState('');
+  
   const fileInputRef = useRef(null);
   
   const profileStats = [
     { label: 'Posts', value: userPosts.length.toString(), icon: MessageSquare },
-    { label: 'Connections', value: (profileData?.connections?.length || 0).toString(), icon: Users },
+    { label: 'Connections', value: connections.length.toString(), icon: Users },
     { label: 'Profile Views', value: '2.8K', icon: Eye },
     { label: 'Likes Received', value: '856', icon: Heart }
   ];
 
-  const recentPosts = [
-    {
-      id: 1,
-      content: 'Excited to share our latest manufacturing efficiency improvements...',
-      timestamp: '2 days ago',
-      likes: 34,
-      comments: 12
-    },
-    {
-      id: 2,
-      content: 'Great networking event at the Manufacturing Summit 2025...',
-      timestamp: '1 week ago',
-      likes: 67,
-      comments: 23
-    },
-    {
-      id: 3,
-      content: 'Thoughts on sustainable manufacturing practices in 2025...',
-      timestamp: '2 weeks ago',
-      likes: 89,
-      comments: 31
-    }
-  ];
+  // Fetch user's connections
+  const fetchConnections = async () => {
+    if (!auth.currentUser || !profileData) return;
+    
+    setConnectionsLoading(true);
+    try {
+      const followers = profileData.followers || [];
+      const following = profileData.following || [];
+      
+      // Combine followers and following to get all connections
+      const allConnectionIds = [...new Set([...followers, ...following])];
+      
+      if (allConnectionIds.length === 0) {
+        setConnections([]);
+        setConnectionsLoading(false);
+        return;
+      }
 
-  const connections = [
-    {
-      id: 1,
-      name: 'Sarah Johnson',
-      title: 'Production Manager',
-      company: 'Tata Steel Manufacturing',
-      avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=50&h=50&fit=crop&crop=face',
-      mutual: 15
-    },
-    {
-      id: 2,
-      name: 'Rajesh Kumar',
-      title: 'Quality Engineer',
-      company: 'Mahindra Auto Parts',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=50&h=50&fit=crop&crop=face',
-      mutual: 23
-    },
-    {
-      id: 3,
-      name: 'Priya Sharma',
-      title: 'Sustainability Lead',
-      company: 'Green Tech Solutions',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=50&h=50&fit=crop&crop=face',
-      mutual: 8
+      // Fetch connection details
+      const connectionPromises = allConnectionIds.map(async (connectionId) => {
+        try {
+          const connectionRef = doc(db, 'users', connectionId);
+          const connectionSnap = await getDoc(connectionRef);
+          
+          if (connectionSnap.exists()) {
+            const connectionData = connectionSnap.data();
+            
+            // Calculate mutual connections
+            const connectionFollowers = connectionData.followers || [];
+            const connectionFollowing = connectionData.following || [];
+            const connectionConnections = [...new Set([...connectionFollowers, ...connectionFollowing])];
+            
+            const mutualConnections = allConnectionIds.filter(id => 
+              id !== connectionId && connectionConnections.includes(id)
+            );
+            
+            return {
+              id: connectionId,
+              name: `${connectionData.firstName || ''} ${connectionData.lastName || ''}`.trim() || 'Unknown User',
+              firstName: connectionData.firstName || '',
+              lastName: connectionData.lastName || '',
+              title: connectionData.role || 'Professional',
+              company: connectionData.company || 'Company not specified',
+              avatar: connectionData.avatar || '',
+              email: connectionData.email || '',
+              city: connectionData.city || '',
+              state: connectionData.state || '',
+              mutual: mutualConnections.length,
+              isFollower: followers.includes(connectionId),
+              isFollowing: following.includes(connectionId),
+              connectionType: followers.includes(connectionId) && following.includes(connectionId) ? 'mutual' : 
+                            followers.includes(connectionId) ? 'follower' : 'following'
+            };
+          }
+          return null;
+        } catch (error) {
+          console.error(`Error fetching connection ${connectionId}:`, error);
+          return null;
+        }
+      });
+
+      const connectionResults = await Promise.all(connectionPromises);
+      const validConnections = connectionResults.filter(conn => conn !== null);
+      
+      // Sort connections: mutual first, then by name
+      validConnections.sort((a, b) => {
+        if (a.connectionType === 'mutual' && b.connectionType !== 'mutual') return -1;
+        if (b.connectionType === 'mutual' && a.connectionType !== 'mutual') return 1;
+        return a.name.localeCompare(b.name);
+      });
+      
+      setConnections(validConnections);
+    } catch (error) {
+      console.error('Error fetching connections:', error);
+      setConnections([]);
+    } finally {
+      setConnectionsLoading(false);
     }
-  ];
+  };
+
+  // Remove connection
+  const removeConnection = async (connectionId, connectionName) => {
+    const confirmRemove = window.confirm(`Are you sure you want to remove ${connectionName} from your connections?`);
+    
+    if (!confirmRemove) return;
+
+    try {
+      const userRef = doc(db, 'users', auth.currentUser.uid);
+      const connectionRef = doc(db, 'users', connectionId);
+
+      // Remove from current user's followers and following
+      await updateDoc(userRef, {
+        followers: arrayRemove(connectionId),
+        following: arrayRemove(connectionId)
+      });
+
+      // Remove current user from connection's followers and following
+      await updateDoc(connectionRef, {
+        followers: arrayRemove(auth.currentUser.uid),
+        following: arrayRemove(auth.currentUser.uid)
+      });
+
+      // Update local state
+      setConnections(prev => prev.filter(conn => conn.id !== connectionId));
+      
+      // Update profile data
+      const updatedFollowers = (profileData.followers || []).filter(id => id !== connectionId);
+      const updatedFollowing = (profileData.following || []).filter(id => id !== connectionId);
+      
+      setProfileData(prev => ({
+        ...prev,
+        followers: updatedFollowers,
+        following: updatedFollowing,
+        connections: updatedFollowers.length + updatedFollowing.length - new Set([...updatedFollowers, ...updatedFollowing]).size
+      }));
+
+      alert(`${connectionName} has been removed from your connections.`);
+    } catch (error) {
+      console.error('Error removing connection:', error);
+      alert('Failed to remove connection. Please try again.');
+    }
+  };
+
+  // Filter connections based on search
+  const filteredConnections = connections.filter(connection =>
+    connection.name.toLowerCase().includes(connectionSearchTerm.toLowerCase()) ||
+    connection.title.toLowerCase().includes(connectionSearchTerm.toLowerCase()) ||
+    connection.company.toLowerCase().includes(connectionSearchTerm.toLowerCase())
+  );
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -134,6 +222,13 @@ const Profile = () => {
 
     fetchUserData();
   }, []);
+
+  // Fetch connections when profile data is loaded or when connections section is active
+  useEffect(() => {
+    if (profileData && activeSection === 'connections') {
+      fetchConnections();
+    }
+  }, [profileData, activeSection]);
 
   useEffect(() => {
     const fetchAllUsers = async () => {
@@ -501,195 +596,351 @@ const Profile = () => {
       <div className="profile-content">
         {activeSection === "overview" && (
           <div className="overview-section">
-            {/* Contact */}
-            <div className="profile-card">
-              <div className="card-header">
-                <h3>Contact Information</h3>
-                <button onClick={() => setEditingSection("contact")} className="edit-icon-btn">
-                  <Edit size={16} />
-                </button>
-              </div>
+            <div className="overview-cards-horizontal">
+              {/* Contact */}
+              <div className="profile-card horizontal-card">
+                <div className="card-header">
+                  <h3>Contact Information</h3>
+                  <button onClick={() => setEditingSection("contact")} className="edit-icon-btn">
+                    <Edit size={16} />
+                  </button>
+                </div>
 
-              {editingSection === "contact" ? (
-                <>
-                  <input
-                    type="text"
-                    value={editData.phone || ""}
-                    onChange={(e) => handleInputChange("phone", e.target.value)}
-                    placeholder="Phone"
-                    className="edit-input"
-                  />
-                  <input
-                    type="text"
-                    value={editData.city || ""}
-                    onChange={(e) => handleInputChange("city", e.target.value)}
-                    placeholder="City"
-                    className="edit-input"
-                  />
-                  <input
-                    type="text"
-                    value={editData.state || ""}
-                    onChange={(e) => handleInputChange("state", e.target.value)}
-                    placeholder="State"
-                    className="edit-input"
-                  />
-                  <div className="edit-actions">
-                    <button
-                      onClick={() =>
-                        saveSection({ 
-                          phone: editData.phone, 
-                          city: editData.city, 
-                          state: editData.state 
-                        })
+                {editingSection === "contact" ? (
+                  <div className="edit-section">
+                    <input
+                      type="text"
+                      value={editData.phone || ""}
+                      onChange={(e) => handleInputChange("phone", e.target.value)}
+                      placeholder="Phone"
+                      className="edit-input"
+                    />
+                    <input
+                      type="text"
+                      value={editData.city || ""}
+                      onChange={(e) => handleInputChange("city", e.target.value)}
+                      placeholder="City"
+                      className="edit-input"
+                    />
+                    <input
+                      type="text"
+                      value={editData.state || ""}
+                      onChange={(e) => handleInputChange("state", e.target.value)}
+                      placeholder="State"
+                      className="edit-input"
+                    />
+                    <div className="edit-actions">
+                      <button
+                        onClick={() =>
+                          saveSection({ 
+                            phone: editData.phone, 
+                            city: editData.city, 
+                            state: editData.state 
+                          })
+                        }
+                        className="save-btn"
+                      >
+                        Save
+                      </button>
+                      <button onClick={() => setEditingSection(null)} className="cancel-btn">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="contact-info horizontal-info">
+                    <div className="info-item"><Mail size={16} /> {profileData?.email}</div>
+                    <div className="info-item"><Phone size={16} /> {profileData?.phone || "N/A"}</div>
+                    <div className="info-item"><MapPin size={16} /> {profileData?.city}, {profileData?.state}</div>
+                    <div className="info-item">
+                      <Calendar size={16} /> 
+                      Joined {profileData?.createdAt?.seconds ? 
+                        new Date(profileData.createdAt.seconds * 1000).toLocaleDateString() : 
+                        "Unknown"
                       }
-                      className="save-btn"
-                    >
-                      Save
-                    </button>
-                    <button onClick={() => setEditingSection(null)} className="cancel-btn">
-                      Cancel
-                    </button>
+                    </div>
                   </div>
-                </>
-              ) : (
-                <div className="contact-info">
-                  <div><Mail size={18} /> {profileData?.email}</div>
-                  <div><Phone size={18} /> {profileData?.phone || "N/A"}</div>
-                  <div><MapPin size={18} /> {profileData?.city}, {profileData?.state}</div>
-                  <div>
-                    <Calendar size={18} /> 
-                    Joined {profileData?.createdAt?.seconds ? 
-                      new Date(profileData.createdAt.seconds * 1000).toLocaleDateString() : 
-                      "Unknown"
-                    }
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Experience */}
-            <div className="profile-card">
-              <div className="card-header">
-                <h3>Professional Experience</h3>
-                <button onClick={() => setEditingSection("experience")} className="edit-icon-btn">
-                  <Edit size={16} />
-                </button>
+                )}
               </div>
-              {editingSection === "experience" ? (
-                <>
-                  <input
-                    type="text"
-                    value={editData.title || ""}
-                    onChange={(e) => handleInputChange("title", e.target.value)}
-                    placeholder="Role"
-                    className="edit-input"
-                  />
-                  <input
-                    type="text"
-                    value={editData.company || ""}
-                    onChange={(e) => handleInputChange("company", e.target.value)}
-                    placeholder="Company"
-                    className="edit-input"
-                  />
-                  <div className="edit-actions">
-                    <button
-                      onClick={() => saveSection({ 
-                        role: editData.title, 
-                        company: editData.company 
-                      })}
-                      className="save-btn"
-                    >
-                      Save
-                    </button>
-                    <button onClick={() => setEditingSection(null)} className="cancel-btn">
-                      Cancel
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <p>{profileData?.role} at {profileData?.company} (2023 - Present)</p>
-              )}
-            </div>
 
-            {/* Skills */}
-            <div className="profile-card">
-              <div className="card-header">
-                <h3>Skills</h3>
-                <button onClick={() => setEditingSection("skills")} className="edit-icon-btn">
-                  <Edit size={16} />
-                </button>
-              </div>
-              {editingSection === "skills" ? (
-                <>
-                  <input
-                    type="text"
-                    value={editData.skills || ""}
-                    onChange={(e) => handleInputChange("skills", e.target.value)}
-                    placeholder="Comma-separated skills (e.g., React, JavaScript, IoT)"
-                    className="edit-input"
-                  />
-                  <div className="edit-actions">
-                    <button
-                      onClick={() => saveSection({ 
-                        skills: editData.skills.split(",").map(s => s.trim()) 
-                      })}
-                      className="save-btn"
-                    >
-                      Save
-                    </button>
-                    <button onClick={() => setEditingSection(null)} className="cancel-btn">
-                      Cancel
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="skills-grid">
-                  {(profileData?.skills || []).map((skill, index) => (
-                    <span key={index} className="skill-tag">{skill}</span>
-                  ))}
+              {/* Experience */}
+              <div className="profile-card horizontal-card">
+                <div className="card-header">
+                  <h3>Professional Experience</h3>
+                  <button onClick={() => setEditingSection("experience")} className="edit-icon-btn">
+                    <Edit size={16} />
+                  </button>
                 </div>
-              )}
+                {editingSection === "experience" ? (
+                  <div className="edit-section">
+                    <input
+                      type="text"
+                      value={editData.title || ""}
+                      onChange={(e) => handleInputChange("title", e.target.value)}
+                      placeholder="Role"
+                      className="edit-input"
+                    />
+                    <input
+                      type="text"
+                      value={editData.company || ""}
+                      onChange={(e) => handleInputChange("company", e.target.value)}
+                      placeholder="Company"
+                      className="edit-input"
+                    />
+                    <div className="edit-actions">
+                      <button
+                        onClick={() => saveSection({ 
+                          role: editData.title, 
+                          company: editData.company 
+                        })}
+                        className="save-btn"
+                      >
+                        Save
+                      </button>
+                      <button onClick={() => setEditingSection(null)} className="cancel-btn">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="experience-info horizontal-info">
+                    <div className="experience-item">
+                      <div className="experience-role">{profileData?.role}</div>
+                      <div className="experience-company">at {profileData?.company}</div>
+                      <div className="experience-duration">(2023 - Present)</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Skills */}
+              <div className="profile-card horizontal-card">
+                <div className="card-header">
+                  <h3>Skills</h3>
+                  <button onClick={() => setEditingSection("skills")} className="edit-icon-btn">
+                    <Edit size={16} />
+                  </button>
+                </div>
+                {editingSection === "skills" ? (
+                  <div className="edit-section">
+                    <input
+                      type="text"
+                      value={editData.skills || ""}
+                      onChange={(e) => handleInputChange("skills", e.target.value)}
+                      placeholder="Comma-separated skills (e.g., React, JavaScript, IoT)"
+                      className="edit-input"
+                    />
+                    <div className="edit-actions">
+                      <button
+                        onClick={() => saveSection({ 
+                          skills: editData.skills.split(",").map(s => s.trim()) 
+                        })}
+                        className="save-btn"
+                      >
+                        Save
+                      </button>
+                      <button onClick={() => setEditingSection(null)} className="cancel-btn">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="skills-grid horizontal-skills">
+                    {(profileData?.skills || []).map((skill, index) => (
+                      <span key={index} className="skill-tag">{skill}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
 
         {activeSection === "posts" && (
           <div className="profile-posts">
-            <h3>Your Posts ({userPosts.length})</h3>
+            <div className="posts-header">
+              <h3>Your Posts ({userPosts.length})</h3>
+              <div className="posts-stats">
+                <span className="posts-count">Total: {userPosts.length}</span>
+              </div>
+            </div>
             {userPosts.length === 0 ? (
-              <p>No posts yet. Start sharing your manufacturing insights!</p>
+              <div className="no-posts-gallery">
+                <MessageSquare size={48} className="no-posts-icon" />
+                <h4>No posts yet</h4>
+                <p>Start sharing your manufacturing insights!</p>
+              </div>
             ) : (
-              userPosts.map((post) => (
-                <div key={post.id} className="post-card">
-                  <div className="post-header">
-                    <div className="post-content-header">
-                      <h4>{post.content}</h4>
+              <div className="posts-gallery">
+                {userPosts.map((post) => (
+                  <div key={post.id} className="gallery-post-card">
+                    <div className="gallery-post-header">
+                      <div className="post-date">
+                        {post.timestamp?.seconds ? 
+                          new Date(post.timestamp.seconds * 1000).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric'
+                          }) : 
+                          'Unknown'
+                        }
+                      </div>
+                      <button
+                        className="delete-post-btn gallery-delete"
+                        onClick={() => handleDeletePost(post.id)}
+                        title="Delete Post"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
-                    <button
-                      className="delete-post-btn"
-                      onClick={() => handleDeletePost(post.id)}
-                      title="Delete Post"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+
+                    {post.image && (
+                      <div className="gallery-post-image">
+                        <img src={post.image} alt="post" />
+                      </div>
+                    )}
+
+                    <div className="gallery-post-content">
+                      <p className="gallery-post-text">
+                        {post.content.length > 100 ? 
+                          `${post.content.substring(0, 100)}...` : 
+                          post.content
+                        }
+                      </p>
+                    </div>
+
+                    <div className="gallery-post-stats">
+                      <div className="stat-item">
+                        <Heart size={12} />
+                        <span>{post.likes || 0}</span>
+                      </div>
+                      <div className="stat-item">
+                        <MessageSquare size={12} />
+                        <span>{post.comments || 0}</span>
+                      </div>
+                      <div className="stat-item">
+                        <Share2 size={12} />
+                        <span>{post.shares || 0}</span>
+                      </div>
+                    </div>
+
+                    <div className="gallery-post-time">
+                      {post.timestamp?.seconds ? 
+                        new Date(post.timestamp.seconds * 1000).toLocaleTimeString([], {
+                          hour: '2-digit', 
+                          minute: '2-digit'
+                        }) : 
+                        'Unknown time'
+                      }
+                    </div>
                   </div>
-                  {post.image && <img src={post.image} alt="post" className="post-image" />}
-                  <p className="post-timestamp">
-                    {post.timestamp?.seconds ? 
-                      new Date(post.timestamp.seconds * 1000).toLocaleString() : 
-                      'Unknown date'
-                    }
-                  </p>
-                </div>
-              ))
+                ))}
+              </div>
             )}
           </div>
         )}
 
         {activeSection === "connections" && (
           <div className="connections-section">
-            <h3>Your Connections (0)</h3>
-            <p>No connections yet. Start connecting with other professionals in the manufacturing industry!</p>
+            <div className="connections-header">
+              <h3>Your Connections ({connections.length})</h3>
+              {connections.length > 0 && (
+                <div className="connections-search">
+                  <Search size={16} className="search-icon" />
+                  <input
+                    type="text"
+                    placeholder="Search connections..."
+                    value={connectionSearchTerm}
+                    onChange={(e) => setConnectionSearchTerm(e.target.value)}
+                    className="connections-search-input"
+                  />
+                </div>
+              )}
+            </div>
+
+            {connectionsLoading ? (
+              <div className="connections-loading">
+                <p>Loading your connections...</p>
+              </div>
+            ) : connections.length === 0 ? (
+              <div className="no-connections">
+                <Users size={48} className="no-connections-icon" />
+                <h4>No connections yet</h4>
+                <p>Start connecting with other professionals in the manufacturing industry!</p>
+              </div>
+            ) : (
+              <div className="connections-grid">
+                {filteredConnections.map((connection) => (
+                  <div key={connection.id} className="connection-card">
+                    <div className="connection-header">
+                      <div className="connection-avatar">
+                        {connection.avatar ? (
+                          <img src={connection.avatar} alt={connection.name} />
+                        ) : (
+                          <div className="connection-avatar-placeholder">
+                            {connection.firstName?.[0]}{connection.lastName?.[0]}
+                          </div>
+                        )}
+                      </div>
+                      <div className="connection-type-badge">
+                        {connection.connectionType === 'mutual' ? (
+                          <span className="mutual-badge">Mutual</span>
+                        ) : connection.connectionType === 'follower' ? (
+                          <span className="follower-badge">Follower</span>
+                        ) : (
+                          <span className="following-badge">Following</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="connection-info">
+                      <h4 className="connection-name">{connection.name}</h4>
+                      <p className="connection-title">{connection.title}</p>
+                      <p className="connection-company">{connection.company}</p>
+                      {connection.city && connection.state && (
+                        <p className="connection-location">
+                          <MapPin size={12} />
+                          {connection.city}, {connection.state}
+                        </p>
+                      )}
+                      {connection.mutual > 0 && (
+                        <p className="mutual-connections">
+                          {connection.mutual} mutual connection{connection.mutual !== 1 ? 's' : ''}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="connection-actions">
+                      <button
+                        className="message-btn"
+                        onClick={() => {
+                          // You can implement navigation to chat here
+                          // For now, we'll just show an alert
+                          alert(`Opening chat with ${connection.name}`);
+                        }}
+                        title={`Message ${connection.name}`}
+                      >
+                        <MessageCircle size={16} />
+                        Message
+                      </button>
+                      <button
+                        className="remove-connection-btn"
+                        onClick={() => removeConnection(connection.id, connection.name)}
+                        title={`Remove ${connection.name} from connections`}
+                      >
+                        <UserMinus size={16} />
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {connectionSearchTerm && filteredConnections.length === 0 && connections.length > 0 && (
+              <div className="no-search-results">
+                <p>No connections found matching "{connectionSearchTerm}"</p>
+              </div>
+            )}
           </div>
         )}
 
