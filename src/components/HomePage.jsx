@@ -22,12 +22,12 @@ const HomePage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [viewingUser, setViewingUser] = useState(null);
-  
+
   // Notification system states
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  
+
   const navigate = useNavigate();
 
   // Remove the static posts array - we'll fetch from Firebase
@@ -52,6 +52,8 @@ const HomePage = () => {
     { label: "Manufacturing Jobs", value: "1.2K", trend: "+15%" }
   ];
 
+
+
   // Fetch notifications for current user with better error handling
   const fetchNotifications = async () => {
     if (!auth.currentUser) return;
@@ -63,7 +65,7 @@ const HomePage = () => {
         where('recipientId', '==', auth.currentUser.uid),
         limit(20) // Limit to prevent too much data
       );
-      
+
       const snapshot = await getDocs(notificationsQuery);
       const userNotifications = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -78,11 +80,11 @@ const HomePage = () => {
       });
 
       setNotifications(sortedNotifications);
-      
+
       // Count unread notifications
       const unread = sortedNotifications.filter(notif => !notif.read).length;
       setUnreadCount(unread);
-      
+
     } catch (error) {
       console.error('Error fetching notifications:', error);
       // Fallback: Set empty notifications to prevent UI issues
@@ -108,11 +110,13 @@ const HomePage = () => {
       // Add to followers/following with safety checks
       await updateDoc(currentUserRef, {
         followers: arrayUnion(notification.senderId),
-        followRequests: arrayRemove(notification.senderId)
+        followRequests: arrayRemove(notification.senderId),
+        connections: arrayUnion(notification.senderId)
       });
 
       await updateDoc(senderRef, {
-        following: arrayUnion(auth.currentUser.uid)
+        following: arrayUnion(auth.currentUser.uid),
+        connections: arrayUnion(auth.currentUser.uid)
       });
 
       // Delete the notification
@@ -202,7 +206,6 @@ const HomePage = () => {
     const user = auth.currentUser;
     if (!user || (!newPostText.trim() && !selectedImage)) return;
 
-    // Handle posting
     const post = {
       userId: user.uid,
       userName: `${profileData?.firstName || ''} ${profileData?.lastName || ''}`,
@@ -220,13 +223,36 @@ const HomePage = () => {
     };
 
     try {
-      await addDoc(collection(db, "posts"), post);
+      const postRef = await addDoc(collection(db, "posts"), post);
+      const postId = postRef.id;
+
+      // Send notifications to all connections
+      const connections = profileData?.connections || [];
+      const truncatedText = newPostText.substring(0, 100) + (newPostText.length > 100 ? "..." : "");
+
+      await Promise.all(
+        connections.map(connId =>
+          addDoc(collection(db, 'notifications'), {
+            recipientId: connId,
+            senderId: user.uid,
+            senderName: `${profileData?.firstName} ${profileData?.lastName}`,
+            senderAvatar: profileData?.avatar || '',
+            type: 'new_post',
+            message: `${profileData?.firstName} posted: "${truncatedText}"`,
+            postId: postId,
+            read: false,
+            timestamp: serverTimestamp()
+          })
+        )
+      );
+
       setNewPostText('');
       setSelectedImage(null);
       setShowCreatePost(false);
-      fetchPosts(); // Refresh posts from Firestore
+      fetchPosts();
+
     } catch (error) {
-      console.error("Error saving post:", error);
+      console.error("Error saving post or sending notifications:", error);
       alert("Failed to save post.");
     }
   };
@@ -287,7 +313,7 @@ const HomePage = () => {
       }
       return post;
     }));
-    
+
     // You can add actual sharing functionality here
     if (navigator.share) {
       navigator.share({
@@ -308,7 +334,7 @@ const HomePage = () => {
     if (window.confirm('Are you sure you want to logout?')) {
       // Clear any stored user data (if using localStorage/sessionStorage)
       // localStorage.removeItem('userToken');
-      
+
       // Navigate back to login page
       navigate('/login');
     }
@@ -318,13 +344,13 @@ const HomePage = () => {
   const fetchPosts = async () => {
     try {
       const snapshot = await getDocs(collection(db, 'posts'));
-      const allPosts = snapshot.docs.map(doc => ({ 
-        id: doc.id, 
+      const allPosts = snapshot.docs.map(doc => ({
+        id: doc.id,
         ...doc.data(),
         liked: false, // Add default liked state for UI
         commentsList: doc.data().commentsList || []
       }));
-      
+
       // Sort by timestamp descending (newest first)
       const sortedPosts = allPosts.sort((a, b) => {
         if (a.timestamp?.seconds && b.timestamp?.seconds) {
@@ -332,7 +358,7 @@ const HomePage = () => {
         }
         return 0;
       });
-      
+
       setPosts(sortedPosts);
     } catch (error) {
       console.error("Error fetching posts:", error);
@@ -355,7 +381,7 @@ const HomePage = () => {
 
         if (userSnap.exists()) {
           const data = userSnap.data();
-          setProfileData(data);  
+          setProfileData(data);
           setUserData(data);
         }
       } catch (error) {
@@ -367,7 +393,7 @@ const HomePage = () => {
 
     // Initial fetch
     fetchUserProfile();
-    
+
     // Only fetch notifications if user is logged in
     if (auth.currentUser) {
       fetchNotifications();
@@ -379,7 +405,7 @@ const HomePage = () => {
         fetchUserProfile();
         localStorage.removeItem("profileUpdated");
       }
-      
+
       // ADDED: Listen for post deletions
       if (localStorage.getItem("postsUpdated")) {
         fetchPosts();
@@ -418,7 +444,7 @@ const HomePage = () => {
       );
 
       if (matchedUser) {
-         navigate(`/profile/${matchedUser.id}`);
+        navigate(`/profile/${matchedUser.id}`);
       } else {
         alert("No user found with that name or email.");
       }
@@ -442,7 +468,7 @@ const HomePage = () => {
               <p className="brand-subtitle">Manufacturing Hub</p>
             </div>
           </div>
-          
+
           <div className="header-actions">
             <button className="header-btn">
               <input
@@ -458,10 +484,10 @@ const HomePage = () => {
                 }}
               />
             </button>
-            
+
             {/* Notifications Button */}
             <div className="notifications-container">
-              <button 
+              <button
                 className="header-btn notifications-btn"
                 onClick={() => setShowNotifications(!showNotifications)}
               >
@@ -476,14 +502,14 @@ const HomePage = () => {
                 <div className="notifications-dropdown">
                   <div className="notifications-header">
                     <h3>Notifications</h3>
-                    <button 
+                    <button
                       className="close-notifications"
                       onClick={() => setShowNotifications(false)}
                     >
                       <X size={16} />
                     </button>
                   </div>
-                  
+
                   <div className="notifications-list">
                     {notifications.length === 0 ? (
                       <div className="no-notifications">
@@ -491,10 +517,25 @@ const HomePage = () => {
                       </div>
                     ) : (
                       notifications.map(notification => (
-                        <div 
-                          key={notification.id} 
+                        <div
+                          key={notification.id}
                           className={`notification-item ${!notification.read ? 'unread' : ''}`}
-                          onClick={() => !notification.read && markAsRead(notification.id)}
+                          onClick={() => {
+                            if (!notification.read) {
+                              markAsRead(notification.id);
+                            }
+                            if (notification.type === 'new_post' && notification.postId) {
+                              setActiveTab('Home');
+                              setTimeout(() => {
+                                const postElement = document.getElementById(`post-${notification.postId}`);
+                                if (postElement) {
+                                  postElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  postElement.classList.add('highlight');
+                                  setTimeout(() => postElement.classList.remove('highlight'), 2000);
+                                }
+                              }, 200);
+                            }
+                          }}
                         >
                           <div className="notification-avatar">
                             {notification.senderAvatar ? (
@@ -505,9 +546,16 @@ const HomePage = () => {
                               </div>
                             )}
                           </div>
-                          
+
                           <div className="notification-content">
                             <div className="notification-message">
+
+                              {notification.type === 'new_post' && (
+                                <div className="new-post-notification">
+                                  <MessageSquare size={16} className="notification-icon" />
+                                  <span>{notification.message}</span>
+                                </div>
+                              )}
                               {notification.type === 'follow_request' && (
                                 <div className="follow-request">
                                   <UserPlus size={16} className="notification-icon" />
@@ -521,17 +569,17 @@ const HomePage = () => {
                                 </div>
                               )}
                             </div>
-                            
+
                             <div className="notification-time">
-                              {notification.timestamp?.seconds ? 
-                                new Date(notification.timestamp.seconds * 1000).toLocaleString() : 
+                              {notification.timestamp?.seconds ?
+                                new Date(notification.timestamp.seconds * 1000).toLocaleString() :
                                 'Just now'
                               }
                             </div>
 
                             {notification.type === 'follow_request' && (
                               <div className="follow-request-actions">
-                                <button 
+                                <button
                                   className="accept-btn"
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -541,7 +589,7 @@ const HomePage = () => {
                                   <Check size={14} />
                                   Accept
                                 </button>
-                                <button 
+                                <button
                                   className="reject-btn"
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -561,9 +609,9 @@ const HomePage = () => {
                 </div>
               )}
             </div>
-            
-            <button 
-              className="header-btn logout-btn" 
+
+            <button
+              className="header-btn logout-btn"
               onClick={handleLogout}
               title="Logout"
             >
@@ -576,7 +624,7 @@ const HomePage = () => {
       {/* Rest of the component remains the same... */}
       {/* Main Content */}
       <div className="main-content">
-        
+
         {/* Chat Section */}
         {activeTab === 'Chat' && <Chat />}
 
@@ -591,9 +639,9 @@ const HomePage = () => {
                 <div className="card profile-card">
                   <div className="profile-avatar">
                     {userData?.avatar ? (
-                      <img 
-                        src={userData.avatar} 
-                        alt="Profile" 
+                      <img
+                        src={userData.avatar}
+                        alt="Profile"
                         className="profile-avatar-image"
                       />
                     ) : (
@@ -631,9 +679,9 @@ const HomePage = () => {
                   <div className="create-post-row">
                     <div className="user-avatar">
                       {userData?.avatar ? (
-                        <img 
-                          src={userData.avatar} 
-                          alt="Profile" 
+                        <img
+                          src={userData.avatar}
+                          alt="Profile"
                           className="user-avatar-image"
                         />
                       ) : (
@@ -644,7 +692,7 @@ const HomePage = () => {
                         </span>
                       )}
                     </div>
-                    <button 
+                    <button
                       className="create-post-input"
                       onClick={() => setShowCreatePost(!showCreatePost)}
                     >
@@ -653,7 +701,7 @@ const HomePage = () => {
                   </div>
                   {showCreatePost && (
                     <div className="create-post-expanded">
-                      <textarea 
+                      <textarea
                         className="create-post-textarea"
                         rows="3"
                         placeholder="Share your manufacturing insights..."
@@ -663,7 +711,7 @@ const HomePage = () => {
                       {selectedImage && (
                         <div className="selected-image-preview">
                           <img src={selectedImage} alt="Selected" className="preview-image" />
-                          <button 
+                          <button
                             className="remove-image-btn"
                             onClick={() => setSelectedImage(null)}
                           >
@@ -709,19 +757,19 @@ const HomePage = () => {
                     </div>
                   ) : (
                     posts.map((post) => (
-                      <div key={post.id} className="post-card">
+                      <div key={post.id} id={`post-${post.id}`} className="post-card">
                         <div className="post-content">
                           <div className="post-header">
                             {post.avatar ? (
-                              <img 
-                                src={post.avatar} 
-                                alt="" 
+                              <img
+                                src={post.avatar}
+                                alt=""
                                 className="post-avatar"
                               />
                             ) : (
                               <div className="post-avatar-fallback">
-                                {post.userName ? 
-                                  post.userName.split(' ').map(n => n[0]).join('').toUpperCase() : 
+                                {post.userName ?
+                                  post.userName.split(' ').map(n => n[0]).join('').toUpperCase() :
                                   'MP'
                                 }
                               </div>
@@ -729,8 +777,8 @@ const HomePage = () => {
                             <div className="post-user-info">
                               <h3 className="post-username">{post.userName || post.user}</h3>
                               <p className="post-role-company">
-                                {post.role && post.company ? `${post.role} at ${post.company}` : 
-                                 post.company || 'Manufacturing Professional'}
+                                {post.role && post.company ? `${post.role} at ${post.company}` :
+                                  post.company || 'Manufacturing Professional'}
                               </p>
                               {(post.city && post.state) && (
                                 <div className="post-meta">
@@ -740,30 +788,30 @@ const HomePage = () => {
                               )}
                             </div>
                           </div>
-                          
+
                           <div className="post-text">
                             <p>{post.content}</p>
                             {post.image && (
                               <img src={post.image} alt="" className="post-image" />
                             )}
                           </div>
-                          
+
                           <div className="post-actions">
-                            <button 
+                            <button
                               className={`action-btn like-btn ${post.liked ? 'liked' : ''}`}
                               onClick={() => handleLike(post.id)}
                             >
                               <Heart size={20} fill={post.liked ? '#ef4444' : 'none'} />
                               <span>{post.likes || 0} Like</span>
                             </button>
-                            <button 
+                            <button
                               className="action-btn comment-btn"
                               onClick={() => handleComment(post.id)}
                             >
                               <MessageSquare size={20} />
                               <span>{post.comments || 0} Comment</span>
                             </button>
-                            <button 
+                            <button
                               className="action-btn share-btn"
                               onClick={() => handleShare(post.id)}
                             >
@@ -786,9 +834,9 @@ const HomePage = () => {
                 <div className="mobile-create-row">
                   <div className="user-avatar">
                     {userData?.avatar ? (
-                      <img 
-                        src={userData.avatar} 
-                        alt="Profile" 
+                      <img
+                        src={userData.avatar}
+                        alt="Profile"
                         className="user-avatar-image"
                       />
                     ) : (
@@ -824,15 +872,15 @@ const HomePage = () => {
                       <div className="mobile-post-content">
                         <div className="mobile-post-header">
                           {post.avatar ? (
-                            <img 
-                              src={post.avatar} 
-                              alt="" 
+                            <img
+                              src={post.avatar}
+                              alt=""
                               className="mobile-post-avatar"
                             />
                           ) : (
                             <div className="mobile-post-avatar-fallback">
-                              {post.userName ? 
-                                post.userName.split(' ').map(n => n[0]).join('').toUpperCase() : 
+                              {post.userName ?
+                                post.userName.split(' ').map(n => n[0]).join('').toUpperCase() :
                                 'MP'
                               }
                             </div>
@@ -840,37 +888,37 @@ const HomePage = () => {
                           <div className="post-user-info">
                             <h3 className="mobile-post-username">{post.userName || post.user}</h3>
                             <p className="mobile-post-time">
-                              {post.timestamp?.seconds ? 
-                                new Date(post.timestamp.seconds * 1000).toLocaleString() : 
+                              {post.timestamp?.seconds ?
+                                new Date(post.timestamp.seconds * 1000).toLocaleString() :
                                 post.time || 'Unknown time'
                               }
                             </p>
                           </div>
                         </div>
-                        
+
                         <div className="mobile-post-text">
                           <p>{post.content}</p>
                           {post.image && (
                             <img src={post.image} alt="" className="mobile-post-image" />
                           )}
                         </div>
-                        
+
                         <div className="mobile-post-actions">
-                          <button 
+                          <button
                             className={`mobile-action-btn ${post.liked ? 'liked' : ''}`}
                             onClick={() => handleLike(post.id)}
                           >
                             <Heart size={16} fill={post.liked ? '#ef4444' : 'none'} />
                             <span>Like</span>
                           </button>
-                          <button 
+                          <button
                             className="mobile-action-btn"
                             onClick={() => handleComment(post.id)}
                           >
                             <MessageSquare size={16} />
                             <span>Comment</span>
                           </button>
-                          <button 
+                          <button
                             className="mobile-action-btn"
                             onClick={() => handleShare(post.id)}
                           >
@@ -905,7 +953,7 @@ const HomePage = () => {
           <div className="comment-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Add Comment</h3>
-              <button 
+              <button
                 className="close-btn"
                 onClick={() => setShowCommentModal(false)}
               >
@@ -921,13 +969,13 @@ const HomePage = () => {
                 rows="3"
               />
               <div className="modal-actions">
-                <button 
+                <button
                   className="cancel-btn"
                   onClick={() => setShowCommentModal(false)}
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   className="submit-comment-btn"
                   onClick={submitComment}
                 >

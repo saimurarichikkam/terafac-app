@@ -46,7 +46,7 @@ const Profile = () => {
   
   const profileStats = [
     { label: 'Posts', value: userPosts.length.toString(), icon: MessageSquare },
-    { label: 'Connections', value: '1.2K', icon: Users },
+    { label: 'Connections', value: (profileData?.connections?.length || 0).toString(), icon: Users },
     { label: 'Profile Views', value: '2.8K', icon: Eye },
     { label: 'Likes Received', value: '856', icon: Heart }
   ];
