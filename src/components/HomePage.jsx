@@ -1,4 +1,4 @@
-// Updated HomePage.jsx with better error handling and Firebase fixes
+// Updated HomePage.jsx with complete comments system
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Search, Bell, MessageCircle, Home, AlertTriangle, User, Heart, MessageSquare, Share2, Camera, FileText, BarChart3, MapPin, Send, LogOut, Check, X, UserPlus } from 'lucide-react';
@@ -7,7 +7,7 @@ import TerafacLogo from '../assets/icons/Terafac_Logo_bg.png';
 import Chat from './Chat';
 import Profile from './Profile';
 import { auth, db } from "../firebase";
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, deleteDoc, writeBatch } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { collection, getDocs, query, where, orderBy, limit } from "firebase/firestore";
 import { addDoc, serverTimestamp } from 'firebase/firestore';
@@ -22,21 +22,22 @@ const HomePage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [viewingUser, setViewingUser] = useState(null);
-
+  
   // Notification system states
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-
+  
   const navigate = useNavigate();
 
-  // Remove the static posts array - we'll fetch from Firebase
+  // Posts and comments
   const [posts, setPosts] = useState([]);
-
+  const [postComments, setPostComments] = useState({}); // Store comments for each post
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [activePostId, setActivePostId] = useState(null);
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(true);
+  const [showComments, setShowComments] = useState({}); // Track which posts show comments
   const fileInputRef = useRef(null);
 
   const tabIcons = {
@@ -52,27 +53,209 @@ const HomePage = () => {
     { label: "Manufacturing Jobs", value: "1.2K", trend: "+15%" }
   ];
 
+  // Fetch comments for a specific post
+  const fetchCommentsForPost = async (postId) => {
+    try {
+      const commentsQuery = query(
+        collection(db, 'comments'),
+        where('postId', '==', postId),
+        orderBy('timestamp', 'asc')
+      );
+      
+      const snapshot = await getDocs(commentsQuery);
+      const comments = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      setPostComments(prev => ({
+        ...prev,
+        [postId]: comments
+      }));
+      
+      return comments;
+    } catch (error) {
+      console.error(`Error fetching comments for post ${postId}:`, error);
+      // Fallback: try without orderBy if index doesn't exist
+      try {
+        const simpleQuery = query(
+          collection(db, 'comments'),
+          where('postId', '==', postId)
+        );
+        const snapshot = await getDocs(simpleQuery);
+        const comments = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })).sort((a, b) => {
+          const aTime = a.timestamp?.seconds || 0;
+          const bTime = b.timestamp?.seconds || 0;
+          return aTime - bTime;
+        });
+        
+        setPostComments(prev => ({
+          ...prev,
+          [postId]: comments
+        }));
+        
+        return comments;
+      } catch (fallbackError) {
+        console.error(`Fallback error fetching comments for post ${postId}:`, fallbackError);
+        return [];
+      }
+    }
+  };
 
+  // Fetch all comments for all posts
+  const fetchAllComments = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, 'comments'));
+      const allComments = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // Group comments by postId
+      const commentsByPost = {};
+      allComments.forEach(comment => {
+        if (!commentsByPost[comment.postId]) {
+          commentsByPost[comment.postId] = [];
+        }
+        commentsByPost[comment.postId].push(comment);
+      });
+      
+      // Sort comments by timestamp for each post
+      Object.keys(commentsByPost).forEach(postId => {
+        commentsByPost[postId].sort((a, b) => {
+          const aTime = a.timestamp?.seconds || 0;
+          const bTime = b.timestamp?.seconds || 0;
+          return aTime - bTime;
+        });
+      });
+      
+      setPostComments(commentsByPost);
+    } catch (error) {
+      console.error('Error fetching all comments:', error);
+    }
+  };
 
-  // Fetch notifications for current user with better error handling
+  // Submit a new comment
+  const submitComment = async () => {
+    if (!newComment.trim() || !activePostId || !auth.currentUser) return;
+
+    try {
+      const commentData = {
+        postId: activePostId,
+        userId: auth.currentUser.uid,
+        userName: `${profileData?.firstName || ''} ${profileData?.lastName || ''}`,
+        userAvatar: profileData?.avatar || '',
+        content: newComment.trim(),
+        timestamp: serverTimestamp(),
+        likes: 0
+      };
+
+      // Add comment to Firebase
+      const commentRef = await addDoc(collection(db, 'comments'), commentData);
+      
+      // Update post's comment count
+      const postRef = doc(db, 'posts', activePostId);
+      const postSnap = await getDoc(postRef);
+      if (postSnap.exists()) {
+        const currentComments = postSnap.data().comments || 0;
+        await updateDoc(postRef, {
+          comments: currentComments + 1
+        });
+      }
+
+      // Update local state immediately
+      const newCommentWithId = {
+        id: commentRef.id,
+        ...commentData,
+        timestamp: { seconds: Date.now() / 1000 } // Temporary timestamp for UI
+      };
+
+      setPostComments(prev => ({
+        ...prev,
+        [activePostId]: [...(prev[activePostId] || []), newCommentWithId]
+      }));
+
+      // Update posts state to reflect new comment count
+      setPosts(prevPosts => 
+        prevPosts.map(post => 
+          post.id === activePostId 
+            ? { ...post, comments: (post.comments || 0) + 1 }
+            : post
+        )
+      );
+
+      // Clear form and close modal
+      setNewComment('');
+      setShowCommentModal(false);
+      
+      // Show comments section for this post
+      setShowComments(prev => ({ ...prev, [activePostId]: true }));
+
+      // Send notification to post owner if it's not their own comment
+      const post = posts.find(p => p.id === activePostId);
+      if (post && post.userId !== auth.currentUser.uid) {
+        await addDoc(collection(db, 'notifications'), {
+          recipientId: post.userId,
+          senderId: auth.currentUser.uid,
+          senderName: `${profileData?.firstName} ${profileData?.lastName}`,
+          senderAvatar: profileData?.avatar || '',
+          type: 'comment',
+          message: `${profileData?.firstName} commented on your post`,
+          postId: activePostId,
+          read: false,
+          timestamp: serverTimestamp()
+        });
+      }
+
+    } catch (error) {
+      console.error('Error submitting comment:', error);
+      alert('Failed to post comment. Please try again.');
+    }
+  };
+
+  // Toggle comments visibility for a post
+  const toggleComments = async (postId) => {
+    const isCurrentlyShowing = showComments[postId];
+    
+    if (!isCurrentlyShowing) {
+      // Fetch comments if not already loaded
+      if (!postComments[postId]) {
+        await fetchCommentsForPost(postId);
+      }
+    }
+    
+    setShowComments(prev => ({
+      ...prev,
+      [postId]: !isCurrentlyShowing
+    }));
+  };
+
+  // Handle comment button click
+  const handleComment = (postId) => {
+    setActivePostId(postId);
+    setShowCommentModal(true);
+  };
+
+  // Updated fetchNotifications function
   const fetchNotifications = async () => {
     if (!auth.currentUser) return;
 
     try {
-      // First, try to get notifications without orderBy to avoid index issues
       const notificationsQuery = query(
         collection(db, 'notifications'),
         where('recipientId', '==', auth.currentUser.uid),
-        limit(20) // Limit to prevent too much data
+        limit(20)
       );
-
+      
       const snapshot = await getDocs(notificationsQuery);
       const userNotifications = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
 
-      // Sort on client side to avoid index requirements
       const sortedNotifications = userNotifications.sort((a, b) => {
         const aTime = a.timestamp?.seconds || 0;
         const bTime = b.timestamp?.seconds || 0;
@@ -80,49 +263,55 @@ const HomePage = () => {
       });
 
       setNotifications(sortedNotifications);
-
-      // Count unread notifications
       const unread = sortedNotifications.filter(notif => !notif.read).length;
       setUnreadCount(unread);
-
+      
     } catch (error) {
       console.error('Error fetching notifications:', error);
-      // Fallback: Set empty notifications to prevent UI issues
       setNotifications([]);
       setUnreadCount(0);
     }
   };
 
-  // Handle follow request acceptance with better error handling
+  // Updated handleAcceptFollowRequest with proper connection counting
   const handleAcceptFollowRequest = async (notification) => {
     try {
       if (!auth.currentUser || !notification.senderId) {
         throw new Error('Missing user information');
       }
 
+      console.log('Processing follow request acceptance...');
+      
       const currentUserRef = doc(db, 'users', auth.currentUser.uid);
       const senderRef = doc(db, 'users', notification.senderId);
 
-      // Get current user data first to check existing arrays
       const currentUserSnap = await getDoc(currentUserRef);
       const currentUserData = currentUserSnap.data() || {};
+      
+      const senderSnap = await getDoc(senderRef);
+      const senderData = senderSnap.data() || {};
 
-      // Add to followers/following with safety checks
-      await updateDoc(currentUserRef, {
+      const currentUserConnections = currentUserData.connections || 0;
+      const senderConnections = senderData.connections || 0;
+
+      const batch = writeBatch(db);
+
+      batch.update(currentUserRef, {
         followers: arrayUnion(notification.senderId),
         followRequests: arrayRemove(notification.senderId),
-        connections: arrayUnion(notification.senderId)
+        connections: currentUserConnections + 1
       });
 
-      await updateDoc(senderRef, {
+      batch.update(senderRef, {
         following: arrayUnion(auth.currentUser.uid),
-        connections: arrayUnion(auth.currentUser.uid)
+        connections: senderConnections + 1
       });
 
-      // Delete the notification
-      await deleteDoc(doc(db, 'notifications', notification.id));
+      const notificationRef = doc(db, 'notifications', notification.id);
+      batch.delete(notificationRef);
 
-      // Create acceptance notification for sender
+      await batch.commit();
+
       if (userData?.firstName && userData?.lastName) {
         await addDoc(collection(db, 'notifications'), {
           recipientId: notification.senderId,
@@ -136,9 +325,23 @@ const HomePage = () => {
         });
       }
 
-      // Refresh notifications
+      setUserData(prevData => ({
+        ...prevData,
+        connections: currentUserConnections + 1
+      }));
+
+      if (profileData) {
+        setProfileData(prevData => ({
+          ...prevData,
+          connections: currentUserConnections + 1
+        }));
+      }
+
       await fetchNotifications();
-      alert('Follow request accepted!');
+      localStorage.setItem("profileUpdated", Date.now().toString());
+      localStorage.setItem("connectionsUpdated", Date.now().toString());
+      
+      alert(`Follow request accepted! You now have ${currentUserConnections + 1} connection${currentUserConnections + 1 !== 1 ? 's' : ''}.`);
 
     } catch (error) {
       console.error('Error accepting follow request:', error);
@@ -146,7 +349,7 @@ const HomePage = () => {
     }
   };
 
-  // Handle follow request rejection with better error handling
+  // Rest of your existing functions remain the same...
   const handleRejectFollowRequest = async (notification) => {
     try {
       if (!auth.currentUser || !notification.senderId) {
@@ -154,16 +357,11 @@ const HomePage = () => {
       }
 
       const currentUserRef = doc(db, 'users', auth.currentUser.uid);
-
-      // Remove from follow requests
       await updateDoc(currentUserRef, {
         followRequests: arrayRemove(notification.senderId)
       });
 
-      // Delete the notification
       await deleteDoc(doc(db, 'notifications', notification.id));
-
-      // Refresh notifications
       await fetchNotifications();
       alert('Follow request rejected');
 
@@ -173,7 +371,6 @@ const HomePage = () => {
     }
   };
 
-  // Mark notification as read with error handling
   const markAsRead = async (notificationId) => {
     try {
       await updateDoc(doc(db, 'notifications', notificationId), {
@@ -182,11 +379,9 @@ const HomePage = () => {
       await fetchNotifications();
     } catch (error) {
       console.error('Error marking notification as read:', error);
-      // Don't show alert for this as it's not critical
     }
   };
 
-  // Handle photo selection
   const handlePhotoClick = () => {
     fileInputRef.current?.click();
   };
@@ -226,8 +421,7 @@ const HomePage = () => {
       const postRef = await addDoc(collection(db, "posts"), post);
       const postId = postRef.id;
 
-      // Send notifications to all connections
-      const connections = profileData?.connections || [];
+      const connections = profileData?.followers || [];
       const truncatedText = newPostText.substring(0, 100) + (newPostText.length > 100 ? "..." : "");
 
       await Promise.all(
@@ -257,7 +451,6 @@ const HomePage = () => {
     }
   };
 
-  // Handle like - Update this to work with Firebase posts
   const handleLike = (postId) => {
     setPosts(posts.map(post => {
       if (post.id === postId) {
@@ -271,38 +464,6 @@ const HomePage = () => {
     }));
   };
 
-  // Handle comment
-  const handleComment = (postId) => {
-    setActivePostId(postId);
-    setShowCommentModal(true);
-  };
-
-  const submitComment = () => {
-    if (newComment.trim()) {
-      setPosts(posts.map(post => {
-        if (post.id === activePostId) {
-          return {
-            ...post,
-            comments: (post.comments || 0) + 1,
-            commentsList: [
-              ...(post.commentsList || []),
-              {
-                id: Date.now(),
-                user: `${profileData?.firstName || ''} ${profileData?.lastName || ''}`,
-                text: newComment,
-                time: "Just now"
-              }
-            ]
-          };
-        }
-        return post;
-      }));
-      setNewComment('');
-      setShowCommentModal(false);
-    }
-  };
-
-  // Handle share
   const handleShare = (postId) => {
     setPosts(posts.map(post => {
       if (post.id === postId) {
@@ -313,8 +474,7 @@ const HomePage = () => {
       }
       return post;
     }));
-
-    // You can add actual sharing functionality here
+    
     if (navigator.share) {
       navigator.share({
         title: 'TERAFAC Manufacturing Hub',
@@ -322,47 +482,40 @@ const HomePage = () => {
         url: window.location.href,
       });
     } else {
-      // Fallback: copy to clipboard
       navigator.clipboard.writeText(window.location.href);
       alert('Link copied to clipboard!');
     }
   };
 
-  // Handle logout
   const handleLogout = () => {
-    // Confirm logout
     if (window.confirm('Are you sure you want to logout?')) {
-      // Clear any stored user data (if using localStorage/sessionStorage)
-      // localStorage.removeItem('userToken');
-
-      // Navigate back to login page
       navigate('/login');
     }
   };
 
-  // FIXED: Fetch posts from Firebase with better error handling
   const fetchPosts = async () => {
     try {
       const snapshot = await getDocs(collection(db, 'posts'));
       const allPosts = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
-        liked: false, // Add default liked state for UI
+        liked: false,
         commentsList: doc.data().commentsList || []
       }));
-
-      // Sort by timestamp descending (newest first)
+      
       const sortedPosts = allPosts.sort((a, b) => {
         if (a.timestamp?.seconds && b.timestamp?.seconds) {
           return b.timestamp.seconds - a.timestamp.seconds;
         }
         return 0;
       });
-
+      
       setPosts(sortedPosts);
+      
+      // Fetch comments for all posts
+      await fetchAllComments();
     } catch (error) {
       console.error("Error fetching posts:", error);
-      // Set empty posts array to prevent UI issues
       setPosts([]);
     }
   };
@@ -381,7 +534,7 @@ const HomePage = () => {
 
         if (userSnap.exists()) {
           const data = userSnap.data();
-          setProfileData(data);
+          setProfileData(data);  
           setUserData(data);
         }
       } catch (error) {
@@ -391,37 +544,31 @@ const HomePage = () => {
       }
     };
 
-    // Initial fetch
     fetchUserProfile();
-
-    // Only fetch notifications if user is logged in
+    
     if (auth.currentUser) {
       fetchNotifications();
     }
 
-    // Listen for localStorage updates (profile changes)
     const interval = setInterval(() => {
       if (localStorage.getItem("profileUpdated")) {
         fetchUserProfile();
         localStorage.removeItem("profileUpdated");
       }
-
-      // ADDED: Listen for post deletions
+      
       if (localStorage.getItem("postsUpdated")) {
         fetchPosts();
         localStorage.removeItem("postsUpdated");
       }
 
-      // Refresh notifications periodically (only if user is logged in)
       if (auth.currentUser) {
         fetchNotifications();
       }
-    }, 5000); // Reduced frequency to every 5 seconds
+    }, 5000);
 
     return () => clearInterval(interval);
   }, []);
 
-  // Initial posts fetch
   useEffect(() => {
     if (auth.currentUser) {
       fetchPosts();
@@ -458,7 +605,7 @@ const HomePage = () => {
 
   return (
     <div className="homepage-container">
-      {/* Header */}
+      {/* Header - keeping existing header code */}
       <header className="homepage-header">
         <div className="header-content">
           <div className="logo-section">
@@ -468,7 +615,7 @@ const HomePage = () => {
               <p className="brand-subtitle">Manufacturing Hub</p>
             </div>
           </div>
-
+          
           <div className="header-actions">
             <button className="header-btn">
               <input
@@ -484,10 +631,10 @@ const HomePage = () => {
                 }}
               />
             </button>
-
-            {/* Notifications Button */}
+            
+            {/* Notifications dropdown - keeping existing notifications code */}
             <div className="notifications-container">
-              <button
+              <button 
                 className="header-btn notifications-btn"
                 onClick={() => setShowNotifications(!showNotifications)}
               >
@@ -497,19 +644,18 @@ const HomePage = () => {
                 )}
               </button>
 
-              {/* Notifications Dropdown */}
               {showNotifications && (
                 <div className="notifications-dropdown">
                   <div className="notifications-header">
                     <h3>Notifications</h3>
-                    <button
+                    <button 
                       className="close-notifications"
                       onClick={() => setShowNotifications(false)}
                     >
                       <X size={16} />
                     </button>
                   </div>
-
+                  
                   <div className="notifications-list">
                     {notifications.length === 0 ? (
                       <div className="no-notifications">
@@ -517,8 +663,8 @@ const HomePage = () => {
                       </div>
                     ) : (
                       notifications.map(notification => (
-                        <div
-                          key={notification.id}
+                        <div 
+                          key={notification.id} 
                           className={`notification-item ${!notification.read ? 'unread' : ''}`}
                           onClick={() => {
                             if (!notification.read) {
@@ -546,12 +692,17 @@ const HomePage = () => {
                               </div>
                             )}
                           </div>
-
+                          
                           <div className="notification-content">
                             <div className="notification-message">
-
                               {notification.type === 'new_post' && (
                                 <div className="new-post-notification">
+                                  <MessageSquare size={16} className="notification-icon" />
+                                  <span>{notification.message}</span>
+                                </div>
+                              )}
+                              {notification.type === 'comment' && (
+                                <div className="comment-notification">
                                   <MessageSquare size={16} className="notification-icon" />
                                   <span>{notification.message}</span>
                                 </div>
@@ -569,17 +720,17 @@ const HomePage = () => {
                                 </div>
                               )}
                             </div>
-
+                            
                             <div className="notification-time">
-                              {notification.timestamp?.seconds ?
-                                new Date(notification.timestamp.seconds * 1000).toLocaleString() :
+                              {notification.timestamp?.seconds ? 
+                                new Date(notification.timestamp.seconds * 1000).toLocaleString() : 
                                 'Just now'
                               }
                             </div>
 
                             {notification.type === 'follow_request' && (
                               <div className="follow-request-actions">
-                                <button
+                                <button 
                                   className="accept-btn"
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -589,7 +740,7 @@ const HomePage = () => {
                                   <Check size={14} />
                                   Accept
                                 </button>
-                                <button
+                                <button 
                                   className="reject-btn"
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -609,9 +760,9 @@ const HomePage = () => {
                 </div>
               )}
             </div>
-
-            <button
-              className="header-btn logout-btn"
+            
+            <button 
+              className="header-btn logout-btn" 
               onClick={handleLogout}
               title="Logout"
             >
@@ -621,27 +772,21 @@ const HomePage = () => {
         </div>
       </header>
 
-      {/* Rest of the component remains the same... */}
       {/* Main Content */}
       <div className="main-content">
-
-        {/* Chat Section */}
         {activeTab === 'Chat' && <Chat />}
 
-        {/* Home Section */}
         {activeTab === 'Home' && (
           <>
-            {/* Desktop: Side-by-side layout */}
+            {/* Desktop layout */}
             <div className="desktop-layout">
-              {/* Left Sidebar - Desktop */}
               <div className="sidebar">
-                {/* Profile Card */}
                 <div className="card profile-card">
                   <div className="profile-avatar">
                     {userData?.avatar ? (
-                      <img
-                        src={userData.avatar}
-                        alt="Profile"
+                      <img 
+                        src={userData.avatar} 
+                        alt="Profile" 
                         className="profile-avatar-image"
                       />
                     ) : (
@@ -657,7 +802,6 @@ const HomePage = () => {
                   <p className="profile-company">{profileData?.company}</p>
                 </div>
 
-                {/* Quick Stats */}
                 <div className="card stats-card">
                   <h4>Industry Overview</h4>
                   {quickStats.map((stat, index) => (
@@ -672,16 +816,15 @@ const HomePage = () => {
                 </div>
               </div>
 
-              {/* Main Feed - Desktop */}
               <div className="feed-section">
-                {/* Create Post */}
+                {/* Create Post section - keeping existing code */}
                 <div className="create-post">
                   <div className="create-post-row">
                     <div className="user-avatar">
                       {userData?.avatar ? (
-                        <img
-                          src={userData.avatar}
-                          alt="Profile"
+                        <img 
+                          src={userData.avatar} 
+                          alt="Profile" 
                           className="user-avatar-image"
                         />
                       ) : (
@@ -692,7 +835,7 @@ const HomePage = () => {
                         </span>
                       )}
                     </div>
-                    <button
+                    <button 
                       className="create-post-input"
                       onClick={() => setShowCreatePost(!showCreatePost)}
                     >
@@ -701,7 +844,7 @@ const HomePage = () => {
                   </div>
                   {showCreatePost && (
                     <div className="create-post-expanded">
-                      <textarea
+                      <textarea 
                         className="create-post-textarea"
                         rows="3"
                         placeholder="Share your manufacturing insights..."
@@ -711,7 +854,7 @@ const HomePage = () => {
                       {selectedImage && (
                         <div className="selected-image-preview">
                           <img src={selectedImage} alt="Selected" className="preview-image" />
-                          <button
+                          <button 
                             className="remove-image-btn"
                             onClick={() => setSelectedImage(null)}
                           >
@@ -749,7 +892,7 @@ const HomePage = () => {
                   )}
                 </div>
 
-                {/* Posts */}
+                {/* Posts with Comments */}
                 <div className="posts-container">
                   {posts.length === 0 ? (
                     <div className="no-posts">
@@ -761,15 +904,15 @@ const HomePage = () => {
                         <div className="post-content">
                           <div className="post-header">
                             {post.avatar ? (
-                              <img
-                                src={post.avatar}
-                                alt=""
+                              <img 
+                                src={post.avatar} 
+                                alt="" 
                                 className="post-avatar"
                               />
                             ) : (
                               <div className="post-avatar-fallback">
-                                {post.userName ?
-                                  post.userName.split(' ').map(n => n[0]).join('').toUpperCase() :
+                                {post.userName ? 
+                                  post.userName.split(' ').map(n => n[0]).join('').toUpperCase() : 
                                   'MP'
                                 }
                               </div>
@@ -777,8 +920,8 @@ const HomePage = () => {
                             <div className="post-user-info">
                               <h3 className="post-username">{post.userName || post.user}</h3>
                               <p className="post-role-company">
-                                {post.role && post.company ? `${post.role} at ${post.company}` :
-                                  post.company || 'Manufacturing Professional'}
+                                {post.role && post.company ? `${post.role} at ${post.company}` : 
+                                 post.company || 'Manufacturing Professional'}
                               </p>
                               {(post.city && post.state) && (
                                 <div className="post-meta">
@@ -788,30 +931,30 @@ const HomePage = () => {
                               )}
                             </div>
                           </div>
-
+                          
                           <div className="post-text">
                             <p>{post.content}</p>
                             {post.image && (
                               <img src={post.image} alt="" className="post-image" />
                             )}
                           </div>
-
+                          
                           <div className="post-actions">
-                            <button
+                            <button 
                               className={`action-btn like-btn ${post.liked ? 'liked' : ''}`}
                               onClick={() => handleLike(post.id)}
                             >
                               <Heart size={20} fill={post.liked ? '#ef4444' : 'none'} />
                               <span>{post.likes || 0} Like</span>
                             </button>
-                            <button
+                            <button 
                               className="action-btn comment-btn"
                               onClick={() => handleComment(post.id)}
                             >
                               <MessageSquare size={20} />
                               <span>{post.comments || 0} Comment</span>
                             </button>
-                            <button
+                            <button 
                               className="action-btn share-btn"
                               onClick={() => handleShare(post.id)}
                             >
@@ -819,6 +962,95 @@ const HomePage = () => {
                               <span>{post.shares || 0} Share</span>
                             </button>
                           </div>
+
+                          {/* Comments Section */}
+                          {postComments[post.id] && postComments[post.id].length > 0 && (
+                            <div className="comments-section">
+                              <button 
+                                className="toggle-comments-btn"
+                                onClick={() => toggleComments(post.id)}
+                              >
+                                {showComments[post.id] ? 'Hide' : 'View'} {postComments[post.id].length} comment{postComments[post.id].length !== 1 ? 's' : ''}
+                              </button>
+                              
+                              {showComments[post.id] && (
+                                <div className="comments-container">
+                                  {/* First 3 comments - always visible */}
+                                  <div className="comments-preview">
+                                    {postComments[post.id].slice(0, 3).map((comment) => (
+                                      <div key={comment.id} className="comment-item">
+                                        <div className="comment-avatar">
+                                          {comment.userAvatar ? (
+                                            <img src={comment.userAvatar} alt={comment.userName} />
+                                          ) : (
+                                            <div className="comment-avatar-placeholder">
+                                              {comment.userName ? 
+                                                comment.userName.split(' ').map(n => n[0]).join('').toUpperCase() : 
+                                                'U'
+                                              }
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div className="comment-content">
+                                          <div className="comment-header">
+                                            <span className="comment-author">{comment.userName}</span>
+                                            <span className="comment-time">
+                                              {comment.timestamp?.seconds ? 
+                                                new Date(comment.timestamp.seconds * 1000).toLocaleDateString() : 
+                                                'Just now'
+                                              }
+                                            </span>
+                                          </div>
+                                          <p className="comment-text">{comment.content}</p>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  
+                                  {/* Scrollable container for additional comments */}
+                                  {postComments[post.id].length > 3 && (
+                                    <div className="comments-scroll-container">
+                                      <div className="comments-scroll-header">
+                                        <span className="scroll-indicator">
+                                          {postComments[post.id].length - 3} more comment{postComments[post.id].length - 3 !== 1 ? 's' : ''} ↓
+                                        </span>
+                                      </div>
+                                      <div className="comments-scrollable">
+                                        {postComments[post.id].slice(3).map((comment) => (
+                                          <div key={comment.id} className="comment-item">
+                                            <div className="comment-avatar">
+                                              {comment.userAvatar ? (
+                                                <img src={comment.userAvatar} alt={comment.userName} />
+                                              ) : (
+                                                <div className="comment-avatar-placeholder">
+                                                  {comment.userName ? 
+                                                    comment.userName.split(' ').map(n => n[0]).join('').toUpperCase() : 
+                                                    'U'
+                                                  }
+                                                </div>
+                                              )}
+                                            </div>
+                                            <div className="comment-content">
+                                              <div className="comment-header">
+                                                <span className="comment-author">{comment.userName}</span>
+                                                <span className="comment-time">
+                                                  {comment.timestamp?.seconds ? 
+                                                    new Date(comment.timestamp.seconds * 1000).toLocaleDateString() : 
+                                                    'Just now'
+                                                  }
+                                                </span>
+                                              </div>
+                                              <p className="comment-text">{comment.content}</p>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))
@@ -827,16 +1059,15 @@ const HomePage = () => {
               </div>
             </div>
 
-            {/* Mobile/Tablet layout and rest of component... */}
+            {/* Mobile layout */}
             <div className="mobile-layout">
-              {/* Create Post - Mobile */}
               <div className="mobile-create-post">
                 <div className="mobile-create-row">
                   <div className="user-avatar">
                     {userData?.avatar ? (
-                      <img
-                        src={userData.avatar}
-                        alt="Profile"
+                      <img 
+                        src={userData.avatar} 
+                        alt="Profile" 
                         className="user-avatar-image"
                       />
                     ) : (
@@ -860,7 +1091,6 @@ const HomePage = () => {
                 </div>
               </div>
 
-              {/* Posts - Mobile */}
               <div className="posts-container">
                 {posts.length === 0 ? (
                   <div className="no-posts">
@@ -872,15 +1102,15 @@ const HomePage = () => {
                       <div className="mobile-post-content">
                         <div className="mobile-post-header">
                           {post.avatar ? (
-                            <img
-                              src={post.avatar}
-                              alt=""
+                            <img 
+                              src={post.avatar} 
+                              alt="" 
                               className="mobile-post-avatar"
                             />
                           ) : (
                             <div className="mobile-post-avatar-fallback">
-                              {post.userName ?
-                                post.userName.split(' ').map(n => n[0]).join('').toUpperCase() :
+                              {post.userName ? 
+                                post.userName.split(' ').map(n => n[0]).join('').toUpperCase() : 
                                 'MP'
                               }
                             </div>
@@ -888,37 +1118,37 @@ const HomePage = () => {
                           <div className="post-user-info">
                             <h3 className="mobile-post-username">{post.userName || post.user}</h3>
                             <p className="mobile-post-time">
-                              {post.timestamp?.seconds ?
-                                new Date(post.timestamp.seconds * 1000).toLocaleString() :
+                              {post.timestamp?.seconds ? 
+                                new Date(post.timestamp.seconds * 1000).toLocaleString() : 
                                 post.time || 'Unknown time'
                               }
                             </p>
                           </div>
                         </div>
-
+                        
                         <div className="mobile-post-text">
                           <p>{post.content}</p>
                           {post.image && (
                             <img src={post.image} alt="" className="mobile-post-image" />
                           )}
                         </div>
-
+                        
                         <div className="mobile-post-actions">
-                          <button
+                          <button 
                             className={`mobile-action-btn ${post.liked ? 'liked' : ''}`}
                             onClick={() => handleLike(post.id)}
                           >
                             <Heart size={16} fill={post.liked ? '#ef4444' : 'none'} />
                             <span>Like</span>
                           </button>
-                          <button
+                          <button 
                             className="mobile-action-btn"
                             onClick={() => handleComment(post.id)}
                           >
                             <MessageSquare size={16} />
                             <span>Comment</span>
                           </button>
-                          <button
+                          <button 
                             className="mobile-action-btn"
                             onClick={() => handleShare(post.id)}
                           >
@@ -926,6 +1156,95 @@ const HomePage = () => {
                             <span>Share</span>
                           </button>
                         </div>
+
+                        {/* Mobile Comments Section */}
+                        {postComments[post.id] && postComments[post.id].length > 0 && (
+                          <div className="mobile-comments-section">
+                            <button 
+                              className="mobile-toggle-comments-btn"
+                              onClick={() => toggleComments(post.id)}
+                            >
+                              {showComments[post.id] ? 'Hide' : 'View'} {postComments[post.id].length} comment{postComments[post.id].length !== 1 ? 's' : ''}
+                            </button>
+                            
+                            {showComments[post.id] && (
+                              <div className="mobile-comments-container">
+                                {/* First 3 comments - always visible */}
+                                <div className="mobile-comments-preview">
+                                  {postComments[post.id].slice(0, 3).map((comment) => (
+                                    <div key={comment.id} className="mobile-comment-item">
+                                      <div className="mobile-comment-avatar">
+                                        {comment.userAvatar ? (
+                                          <img src={comment.userAvatar} alt={comment.userName} />
+                                        ) : (
+                                          <div className="mobile-comment-avatar-placeholder">
+                                            {comment.userName ? 
+                                              comment.userName.split(' ').map(n => n[0]).join('').toUpperCase() : 
+                                              'U'
+                                            }
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="mobile-comment-content">
+                                        <div className="mobile-comment-header">
+                                          <span className="mobile-comment-author">{comment.userName}</span>
+                                          <span className="mobile-comment-time">
+                                            {comment.timestamp?.seconds ? 
+                                              new Date(comment.timestamp.seconds * 1000).toLocaleDateString() : 
+                                              'Just now'
+                                            }
+                                          </span>
+                                        </div>
+                                        <p className="mobile-comment-text">{comment.content}</p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                                
+                                {/* Scrollable container for additional comments */}
+                                {postComments[post.id].length > 3 && (
+                                  <div className="mobile-comments-scroll-container">
+                                    <div className="mobile-comments-scroll-header">
+                                      <span className="mobile-scroll-indicator">
+                                        {postComments[post.id].length - 3} more comment{postComments[post.id].length - 3 !== 1 ? 's' : ''} ↓
+                                      </span>
+                                    </div>
+                                    <div className="mobile-comments-scrollable">
+                                      {postComments[post.id].slice(3).map((comment) => (
+                                        <div key={comment.id} className="mobile-comment-item">
+                                          <div className="mobile-comment-avatar">
+                                            {comment.userAvatar ? (
+                                              <img src={comment.userAvatar} alt={comment.userName} />
+                                            ) : (
+                                              <div className="mobile-comment-avatar-placeholder">
+                                                {comment.userName ? 
+                                                  comment.userName.split(' ').map(n => n[0]).join('').toUpperCase() : 
+                                                  'U'
+                                                }
+                                              </div>
+                                            )}
+                                          </div>
+                                          <div className="mobile-comment-content">
+                                            <div className="mobile-comment-header">
+                                              <span className="mobile-comment-author">{comment.userName}</span>
+                                              <span className="mobile-comment-time">
+                                                {comment.timestamp?.seconds ? 
+                                                  new Date(comment.timestamp.seconds * 1000).toLocaleDateString() : 
+                                                  'Just now'
+                                                }
+                                              </span>
+                                            </div>
+                                            <p className="mobile-comment-text">{comment.content}</p>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))
@@ -935,7 +1254,6 @@ const HomePage = () => {
           </>
         )}
 
-        {/* Alerts Section */}
         {activeTab === 'Alerts' && (
           <div className="alerts-container">
             <h2>Notifications & Alerts</h2>
@@ -943,7 +1261,6 @@ const HomePage = () => {
           </div>
         )}
 
-        {/* Profile Section */}
         {activeTab === 'Profile' && <Profile />}
       </div>
 
@@ -953,7 +1270,7 @@ const HomePage = () => {
           <div className="comment-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Add Comment</h3>
-              <button
+              <button 
                 className="close-btn"
                 onClick={() => setShowCommentModal(false)}
               >
@@ -969,15 +1286,16 @@ const HomePage = () => {
                 rows="3"
               />
               <div className="modal-actions">
-                <button
+                <button 
                   className="cancel-btn"
                   onClick={() => setShowCommentModal(false)}
                 >
                   Cancel
                 </button>
-                <button
+                <button 
                   className="submit-comment-btn"
                   onClick={submitComment}
+                  disabled={!newComment.trim()}
                 >
                   <Send size={16} />
                   Comment
